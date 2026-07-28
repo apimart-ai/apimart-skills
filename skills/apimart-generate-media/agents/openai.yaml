@@ -1,0 +1,4 @@
+interface:
+  display_name: "APIMart Image & Video"
+  short_description: "Generate images and videos safely through APIMart MCP"
+  default_prompt: "Use $apimart-generate-media to choose a model, validate its schema, and generate the requested image or video."
