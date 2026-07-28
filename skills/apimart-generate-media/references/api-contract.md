@@ -1,0 +1,154 @@
+# APIMart Media API Contract
+
+## Contents
+
+1. Configuration
+2. Local client commands
+3. API endpoints
+4. Generation and task semantics
+5. Error handling
+
+## Configuration
+
+The bundled client reads:
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `APIMART_API_KEY` | Yes | Preferred APIMart API key |
+| `API_KEY` | Fallback | Legacy key name |
+| `APIMART_BASE_URL` | No | API origin; defaults to `https://api.apimart.ai` |
+| `APIMART_REQUEST_TIMEOUT_MS` | No | Read request timeout; defaults to `15000` |
+| `APIMART_SUBMIT_TIMEOUT_MS` | No | Submit timeout; defaults to `45000` |
+| `APIMART_MAX_RESPONSE_BYTES` | No | Maximum JSON response size; defaults to `33554432` |
+
+The client sends:
+
+```http
+Authorization: Bearer <APIMart API key>
+Accept: application/json
+```
+
+Never set `APIMART_BASE_URL` to the MCP URL. For the test API, use the API
+origin supplied by APIMart operations, for example
+`https://api-dev.apimart.asia`.
+
+## Local Client Commands
+
+Assume:
+
+```text
+CLIENT=<skill-directory>/scripts/apimart-media.mjs
+```
+
+Generate a new idempotency key:
+
+```bash
+node "$CLIENT" key
+```
+
+List models:
+
+```bash
+node "$CLIENT" models [--query <substring>] [--limit <1-200>] [--offset <n>]
+```
+
+Get current usage and input schema:
+
+```bash
+node "$CLIENT" schema \
+  --model <exact-model-id> \
+  [--operation image_generation|video_generation]
+```
+
+Submit a billable image or video generation:
+
+```bash
+node "$CLIENT" generate-image \
+  --model <exact-model-id> \
+  --input-json '<JSON object>' \
+  --idempotency-key <saved-key>
+```
+
+```bash
+node "$CLIENT" generate-video \
+  --model <exact-model-id> \
+  --input-file <JSON file> \
+  --idempotency-key <saved-key>
+```
+
+Exactly one of `--input-json` and `--input-file` is required. Use
+`--input-file -` to read a JSON object from standard input.
+
+Query a task once:
+
+```bash
+node "$CLIENT" task \
+  --task-id <exact-task-id> \
+  [--language zh|en|ko|ja]
+```
+
+All successful commands emit one JSON document to standard output. Errors emit
+one structured JSON error to standard error and exit nonzero.
+
+## API Endpoints
+
+| Operation | Method | Path |
+| --- | --- | --- |
+| List models | GET | `/v1/models` |
+| Read model schema | GET | `/v1/model-schema?model=...&operation=...` |
+| Generate image | POST | `/v1/images/generations` |
+| Generate video | POST | `/v1/videos/generations` |
+| Query task | GET | `/v1/tasks/{task_id}` |
+
+Generation requests also send:
+
+```http
+Idempotency-Key: <saved-key>
+X-APIMart-Response-Version: 2026-07-27
+Content-Type: application/json
+```
+
+The request body is the schema-derived input plus a top-level `model`. Model
+IDs and task IDs are opaque strings and must be copied exactly.
+
+## Generation and Task Semantics
+
+The local client normalizes a generation response with:
+
+- `kind`: `task` for asynchronous work or `result` for a synchronous result.
+- `idempotency_key`: the caller-provided stable key.
+- `task_id`: the opaque task identifier when `kind` is `task`.
+- `status`: commonly `pending`, `processing`, `completed`, or `failed`.
+- `terminal`: true for `completed` or `failed`.
+- `should_poll`: true only for a nonterminal asynchronous task.
+- `next_poll_after_seconds`: suggested delay, currently 2 seconds.
+- `replayed`: true when the server reports an idempotent replay.
+- `response_version`: negotiated response contract version.
+
+The `task` command returns the same polling fields. Query only while
+`should_poll` is true. Stop after 10 minutes or 120 checks by default,
+whichever comes first, and return the task ID for later resumption.
+
+## Error Handling
+
+Known API errors preserve `message`, `type`, `code`, `param`, HTTP status,
+retryability, and any `Retry-After` delay.
+
+For a network failure or timeout during POST, the client reports:
+
+```json
+{
+  "error": {
+    "code": "request_outcome_unknown",
+    "indeterminate": true,
+    "idempotency_key": "<original-key>"
+  }
+}
+```
+
+The server may already have accepted that request. Retry only the identical
+request with the original key. Do not generate a replacement key.
+
+For an ordinary 4xx validation response, `indeterminate` is false; correct the
+schema-derived input and use a new key only when creating a changed logical
+request.

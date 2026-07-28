@@ -1,100 +1,188 @@
 ---
 name: apimart-generate-media
-description: Use APIMart MCP tools to discover models, fetch live input schemas, submit billed image or video generations, and check asynchronous tasks safely. Use when a user asks an agent to create images or videos with APIMart, choose or inspect an APIMart model, determine a model's supported parameters, or resume an APIMart generation task.
+description: Discover APIMart image and video models, inspect live model input schemas, submit text-to-image, text-to-video, or image-to-video generations, and check asynchronous tasks through configured APIMart MCP tools or the bundled local API client. Use when a user wants to find an APIMart media model, learn its required parameters, generate or edit images or videos, or resume an APIMart generation task.
 ---
 
 # Generate Media with APIMart
 
-Use the APIMart MCP as the execution layer. Treat its live model schema as the
-source of truth instead of relying on remembered model parameters.
+Keep every request schema-driven. Use the APIMart MCP tools when they are
+already configured; otherwise use the bundled zero-dependency local client.
 
-## Preconditions
+## Choose One Execution Mode
 
-1. Require the MCP tools `list_models`, `get_model_schema`,
-   `generate_image`, `generate_video`, and `get_task`.
-2. If the tools are unavailable, stop and ask the user to configure
-   `apimart-mcp`. Never request or copy an API key into chat, prompts, files,
-   tool inputs, or generated artifacts.
-3. Treat generation calls as billable. Proceed when the user explicitly asks
-   to generate media. If the user is only comparing options or their intent is
-   unclear, stop before calling a generation tool.
+Use MCP mode when all five tools are available:
+
+- `list_models`
+- `get_model_schema`
+- `generate_image`
+- `generate_video`
+- `get_task`
+
+Read [references/tool-contracts.md](references/tool-contracts.md) when exact MCP
+arguments, result fields, or recovery behavior are needed.
+
+Otherwise use local mode:
+
+```bash
+node <skill-directory>/scripts/apimart-media.mjs <command> [options]
+```
+
+Require Node.js 20 or newer. Read the user's key from `APIMART_API_KEY`, with
+`API_KEY` only as a legacy fallback. Read the API origin from
+`APIMART_BASE_URL`, defaulting to `https://api.apimart.ai`.
+
+If the key is not configured, ask the user to configure it in their local
+environment. Never ask them to paste it into chat. Never place a key in a
+command argument, request/input file, URL, repository, generated artifact, or
+response. `APIMART_BASE_URL` is the APIMart API origin, not the MCP endpoint
+`https://mcp.apimart.asia/mcp`.
+
+Read [references/api-contract.md](references/api-contract.md) when exact local
+commands, API fields, or errors are needed.
+
+Choose one mode for a logical generation. Do not submit through one mode and
+silently retry through the other.
+
+## Command Mapping
+
+| Action | MCP mode | Local mode |
+| --- | --- | --- |
+| List models | `list_models` | `models` |
+| Get current usage/schema | `get_model_schema` | `schema` |
+| Generate image | `generate_image` | `generate-image` |
+| Generate video | `generate_video` | `generate-video` |
+| Query task once | `get_task` | `task` |
 
 ## Workflow
 
-### 1. Establish the request
+### 1. Establish the Request
 
 Identify whether the user wants an image or video and collect the essential
-creative inputs. Reuse any exact model ID the user supplied. Do not rewrite,
-parse, or normalize model IDs or task IDs, even when they resemble JSON.
+creative inputs. Reuse an exact model ID supplied by the user.
 
-### 2. Discover a model
+Treat model IDs and task IDs as opaque strings. Copy them exactly, even when an
+ID resembles JSON such as `["sora-2"]`. Never parse, normalize, or rewrite
+them.
+
+### 2. Discover a Model
 
 When the user did not specify a model:
 
-1. Call `list_models`, using `query` to narrow candidates when the request
-   names a model family.
-2. Follow `next_cursor` only when more candidates are needed.
-3. If several candidates differ materially in capability, speed, or cost and
-   the user's preference is unknown, present a short choice instead of
-   selecting arbitrarily.
+1. List models and narrow candidates with a substring query when useful.
+2. Continue pagination only when more candidates are needed.
+3. If candidates differ materially in capability, speed, price, or supported
+   inputs and the user's preference is unknown, present a short choice.
 
-### 3. Fetch the live schema
+Local example:
 
-Call `get_model_schema` with the exact model ID before every generation.
-Specify `operation` only when inference is ambiguous.
+```bash
+node <skill-directory>/scripts/apimart-media.mjs models \
+  --query "seedance" \
+  --limit 20
+```
 
-Build the generation `input` directly from `input_schema`:
+### 3. Fetch the Live Schema
 
-- Satisfy `required`, `anyOf`, `oneOf`, types, ranges, formats, and enums.
-- Put the model ID only in the generation tool's top-level `model` field.
-- Never put `model` inside `input`.
-- Omit optional fields the user did not request.
-- Never send `response_format` unless the live schema explicitly defines it.
-- Prefer reachable media URLs over large base64 payloads.
+Fetch the exact model's live schema before every generation. Specify
+`operation` only when inference is ambiguous.
 
-Read [references/tool-contracts.md](references/tool-contracts.md) when exact
-tool arguments, result states, or recovery behavior are needed.
+Local example:
 
-### 4. Submit exactly once
+```bash
+node <skill-directory>/scripts/apimart-media.mjs schema \
+  --model "<exact-model-id>"
+```
 
-Choose the tool that matches `operation`:
+Use `operation` to select image or video generation. Use
+`input_schema.required`, `anyOf`, `oneOf`, types, ranges, formats, enums,
+descriptions, and examples as the source of truth.
 
-- `image_generation` -> `generate_image`
-- `video_generation` -> `generate_video`
+Do not infer media capability from a model name or
+`supported_endpoint_types`. Never send `response_format` unless the live
+schema defines it.
 
-Create and retain a unique `idempotency_key` before every billed submission.
-Always pass it in the first generation call so a lost MCP response can be
-recovered safely. A retry must reuse the same key, model, and input. Never
-retry an uncertain submission with a new key.
+### 4. Build the Input
 
-### 5. Handle the result
+- Include every required property.
+- Ask for missing required user choices instead of inventing them.
+- Include optional properties only when requested or clearly helpful.
+- Prefer publicly reachable media URLs over large base64 payloads.
+- Keep `model` out of the schema-derived input object.
+- Preserve URLs, prompts, reference ordering, model ID, and all parameters
+  exactly when retrying.
 
-- If `kind` is `result`, return the completed media result.
-- If `kind` is `task`, preserve `task_id` exactly.
-- Call `get_task` only while `should_poll` is `true`.
+In MCP mode, pass the model ID in the generation tool's top-level `model`
+field and the remaining properties in `input`.
+
+In local mode, pass the model through `--model`. Use `--input-json` for a small
+payload or `--input-file` for a complex JSON object.
+
+### 5. Submit Exactly Once
+
+Treat generation as billable. Submit only when the user clearly asks to create
+media. Asking for models, parameters, examples, or cost information does not
+authorize a generation.
+
+Create and retain an idempotency key before the first submission. In local
+mode:
+
+```bash
+node <skill-directory>/scripts/apimart-media.mjs key
+```
+
+Then submit with the command matching the schema operation:
+
+```bash
+node <skill-directory>/scripts/apimart-media.mjs generate-video \
+  --model "<exact-model-id>" \
+  --input-file "<request.json>" \
+  --idempotency-key "<saved-key>"
+```
+
+For every retry of the same logical request, reuse the exact same key, model,
+and input. Never reuse an old key for changed input. Never retry an uncertain
+submission with a new key.
+
+### 6. Handle the Result
+
+- If `kind` is `result`, return the synchronous result.
+- If `kind` is `task`, save `task_id` exactly.
+- Query only while `should_poll` is true.
 - Wait at least `next_poll_after_seconds` between checks; never busy-loop.
-- Before polling, set a bounded budget: by default, stop after 10 minutes or
-  120 checks, whichever comes first. When the budget is exhausted, return the
-  exact `task_id` so the user can resume later.
-- Stop when `terminal` is `true`. Treat `status: failed` as a normal terminal
-  task result and explain the reported failure without hiding it.
+- Stop after 10 minutes or 120 checks by default, whichever comes first.
+- When the polling budget is exhausted, return the exact task ID so the user
+  can resume later.
+- Stop when `terminal` is true. Both `completed` and `failed` are terminal.
 
-## Error Handling
+Local task example:
 
-- On schema validation failure, fetch the live schema again and correct only
-  the rejected parameters.
-- On authentication failure, ask the user to repair their MCP configuration;
-  do not ask them to paste a key.
-- On a channel or provider failure, report it and avoid repeated submissions.
-  Do not switch models or change the creative request without user consent.
-- When a retryable error includes `retry_after_seconds`, wait at least that
-  long before retrying.
-- On an indeterminate outcome, preserve the original idempotency key and do
-  not create a second logical request.
+```bash
+node <skill-directory>/scripts/apimart-media.mjs task \
+  --task-id "<exact-task-id>" \
+  --language zh
+```
+
+A failed task is a normal terminal generation outcome. Explain the returned
+error and do not start another billable request without fresh user intent.
+
+## Failure and Recovery Rules
+
+- On authentication failure, ask the user to repair their local environment or
+  MCP configuration; never ask them to reveal the key.
+- On `model_not_found` or `unsupported_generation_model`, refresh the model
+  list and schema instead of guessing another ID.
+- On schema validation failure, fetch the schema again and correct only the
+  rejected input.
+- On channel or provider failure, report the failure. Do not switch models or
+  resubmit without user consent.
+- When a retryable error has `retry_after_seconds`, wait at least that long.
+- On `indeterminate: true`, preserve the original key, model, and input. Retry
+  only the identical request with the same key, or report that its outcome is
+  unknown.
 
 ## Response Style
 
-Report the selected model, whether the result is synchronous or asynchronous,
-the terminal status, and any returned media URLs. Keep internal envelopes,
-request IDs, and retry details out of the response unless they help diagnose
-an error or recover a task.
+Reply in the user's language. Report the selected model, whether the result is
+synchronous or asynchronous, the terminal status, and returned media URLs.
+Include the task ID when it helps the user resume or diagnose a task. Never
+expose credentials.
