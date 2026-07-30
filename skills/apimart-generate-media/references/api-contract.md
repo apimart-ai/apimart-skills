@@ -52,7 +52,13 @@ List models:
 node "$CLIENT" models [--query <substring>] [--limit <1-200>] [--offset <n>]
 ```
 
-Get current usage and input schema:
+Read the exact model documentation:
+
+```bash
+node "$CLIENT" docs --model <exact-model-id>
+```
+
+Get the compatibility operation and input schema:
 
 ```bash
 node "$CLIENT" schema \
@@ -95,6 +101,7 @@ one structured JSON error to standard error and exit nonzero.
 | Operation | Method | Path |
 | --- | --- | --- |
 | List models | GET | `/v1/models` |
+| Read model documentation | GET | `/v1/model-docs?model=...` |
 | Read model schema | GET | `/v1/model-schema?model=...&operation=...` |
 | Generate image | POST | `/v1/images/generations` |
 | Generate video | POST | `/v1/videos/generations` |
@@ -108,8 +115,11 @@ X-APIMart-Response-Version: 2026-07-27
 Content-Type: application/json
 ```
 
-The request body is the schema-derived input plus a top-level `model`. Model
-IDs and task IDs are opaque strings and must be copied exactly.
+The request body is the documentation-derived input plus a top-level `model`.
+The compatibility schema is fetched automatically to confirm the requested
+image or video operation; the APIMart API performs exact model-input
+validation. Model IDs and task IDs are opaque strings and must be copied
+exactly.
 
 ## Generation and Task Semantics
 
@@ -149,6 +159,6 @@ For a network failure or timeout during POST, the client reports:
 The server may already have accepted that request. Retry only the identical
 request with the original key. Do not generate a replacement key.
 
-For an ordinary 4xx validation response, `indeterminate` is false; correct the
-schema-derived input and use a new key only when creating a changed logical
-request.
+For an ordinary 4xx validation response, `indeterminate` is false; refresh the
+model documentation and compatibility schema, correct the input, and use a new
+key only when creating a changed logical request.
