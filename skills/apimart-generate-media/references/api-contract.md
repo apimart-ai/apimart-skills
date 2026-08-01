@@ -5,8 +5,9 @@
 1. Configuration
 2. Local client commands
 3. API endpoints
-4. Generation and task semantics
-5. Error handling
+4. Media upload rules
+5. Generation and task semantics
+6. Error handling
 
 ## Configuration
 
@@ -66,6 +67,15 @@ node "$CLIENT" schema \
   [--operation image_generation|video_generation]
 ```
 
+Upload a local reference image and receive an HTTP(S) URL:
+
+```bash
+node "$CLIENT" upload-image --file <local-image-path>
+```
+
+The upload accepts JPEG, PNG, GIF, and WebP content up to 20 MiB. It is not a
+generation request and does not take an idempotency key.
+
 Submit a billable image or video generation:
 
 ```bash
@@ -103,6 +113,7 @@ one structured JSON error to standard error and exit nonzero.
 | List models | GET | `/v1/models` |
 | Read model documentation | GET | `/v1/model-docs?model=...` |
 | Read model schema | GET | `/v1/model-schema?model=...&operation=...` |
+| Upload image | POST | `/v1/uploads/images` |
 | Generate image | POST | `/v1/images/generations` |
 | Generate video | POST | `/v1/videos/generations` |
 | Query task | GET | `/v1/tasks/{task_id}` |
@@ -120,6 +131,33 @@ The compatibility schema is fetched automatically to confirm the requested
 image or video operation; the APIMart API performs exact model-input
 validation. Model IDs and task IDs are opaque strings and must be copied
 exactly.
+
+## Media Upload Rules
+
+`POST /v1/uploads/images` uses `multipart/form-data` with one `file` field and
+the same Bearer API key as the other endpoints. It accepts content-detected
+JPEG, PNG, GIF, or WebP bytes up to 20 MiB and returns:
+
+```json
+{
+  "url": "https://...",
+  "filename": "reference.png",
+  "content_type": "image/png",
+  "bytes": 12345,
+  "created_at": 1785571200
+}
+```
+
+Use `url` in the model-specific image field. Do not pass the local path,
+base64, or data URI to a generation request. The response has no explicit
+expiry timestamp, so use the URL promptly. Uploads are not automatically
+retried because the endpoint has no upload idempotency key; an uncertain retry
+could create a duplicate object.
+
+There are no APIMart audio or video upload endpoints in this workflow. Every
+audio/video media value used by a generation must be a public HTTP(S) URL.
+Local paths, attachments, `file://`, raw/base64 bytes, and audio/video data URIs
+are rejected locally before schema lookup or billable submission.
 
 ## Generation and Task Semantics
 

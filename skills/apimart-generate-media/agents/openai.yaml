@@ -1,4 +1,4 @@
 interface:
   display_name: "APIMart Image & Video"
-  short_description: "Discover models and generate APIMart images or videos"
-  default_prompt: "Use $apimart-generate-media to find a model, read its live Markdown documentation, and safely generate the requested image or video."
+  short_description: "Upload reference images and generate APIMart media"
+  default_prompt: "Use $apimart-generate-media to read the live model documentation, upload any local reference image, and safely generate the requested image or video using URL-only audio/video inputs."

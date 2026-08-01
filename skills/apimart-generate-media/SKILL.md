@@ -1,6 +1,6 @@
 ---
 name: apimart-generate-media
-description: Discover APIMart image and video models, read each model's live Markdown documentation and compatibility schema, submit text-to-image, text-to-video, or image-to-video generations, and check asynchronous tasks through configured APIMart MCP tools or the bundled local API client. Use when a user wants to find an APIMart media model, learn its exact supported parameters, generate or edit images or videos, or resume an APIMart generation task.
+description: Discover APIMart image and video models, read each model's live Markdown documentation and compatibility schema, upload local reference images, submit text-to-image, text-to-video, or image-to-video generations, and check asynchronous tasks through configured APIMart MCP tools or the bundled local API client. Use when a user wants to find an APIMart media model, learn its exact supported parameters, upload an image for generation, generate or edit images or videos, or resume an APIMart generation task.
 ---
 
 # Generate Media with APIMart
@@ -12,11 +12,12 @@ client.
 
 ## Choose One Execution Mode
 
-Use MCP mode when all six tools are available:
+Use MCP mode when all seven tools are available:
 
 - `list_models`
 - `get_model_docs`
 - `get_model_schema`
+- `upload_image`
 - `generate_image`
 - `generate_video`
 - `get_task`
@@ -48,6 +49,12 @@ Choose one mode for a logical generation. Do not submit through one mode and
 silently retry through the other. Read-only diagnosis may inspect the other
 mode, but it must never turn into a second billable submission.
 
+Image upload is the one non-billable transport exception: MCP `upload_image`
+is limited to 512 KiB decoded images so public MCP requests stay below 1 MiB.
+When a locally readable image is larger, use the bundled local `upload-image`
+command (up to 20 MiB) to obtain its URL, then continue the generation in the
+original mode. This is not a second generation submission.
+
 ## Command Mapping
 
 | Action | MCP mode | Local mode |
@@ -55,6 +62,7 @@ mode, but it must never turn into a second billable submission.
 | List models | `list_models` | `models` |
 | Read exact model parameters and values | `get_model_docs` | `docs` |
 | Get compatibility contract/schema | `get_model_schema` | `schema` |
+| Upload a local reference image | `upload_image` | `upload-image` |
 | Generate image | `generate_image` | `generate-image` |
 | Generate video | `generate_video` | `generate-video` |
 | Query task once | `get_task` | `task` |
@@ -130,7 +138,16 @@ model documentation describes it.
 - Include every required property.
 - Ask for missing required user choices instead of inventing them.
 - Include optional properties only when requested or clearly helpful.
-- Prefer publicly reachable media URLs over large base64 payloads.
+- When the user supplies a local image or image attachment that a model needs,
+  upload it once and use the returned HTTP(S) URL in the exact field named by
+  the live model documentation. Do not put a local path, image bytes, base64,
+  or a `data:image/...` URI directly in generation input.
+- Do not upload an image merely to inspect model parameters or plan a request.
+- Audio and video references must already be public HTTP(S) URLs. Never pass
+  an audio/video attachment, local path, `file://` URI, base64, raw bytes, or
+  `data:audio/...` / `data:video/...` URI. APIMart currently has no audio or
+  video upload tool. Ask the user for a URL and do not submit generation when
+  one is required but missing.
 - Keep `model` out of the documentation-derived input object.
 - Preserve URLs, prompts, reference ordering, model ID, and all parameters
   exactly when retrying.
@@ -140,6 +157,19 @@ field and the remaining properties in `input`.
 
 In local mode, pass the model through `--model`. Use `--input-json` for a small
 payload or `--input-file` for a complex JSON object.
+
+In MCP mode, `upload_image` accepts JPEG, PNG, GIF, or WebP image data up to
+512 KiB decoded and returns `url`. In local mode, upload a local file up to
+20 MiB with:
+
+```bash
+node <skill-directory>/scripts/apimart-media.mjs upload-image \
+  --file "<local-image-path>"
+```
+
+Stop before generation if upload fails, the format or size is unsupported, or
+no valid URL is returned. An image upload is not a billable generation and
+does not use a generation idempotency key.
 
 ### 5. Submit Exactly Once
 
@@ -197,6 +227,10 @@ error and do not start another billable request without fresh user intent.
   list and model documentation instead of guessing another ID.
 - On a documentation lookup failure, verify that the model has a development
   documentation link configured. Do not substitute another model's parameters.
+- On an image upload failure or uncertain upload outcome, do not submit a
+  generation that depends on it. Confirm a usable URL first.
+- On rejected inline media, upload an image through `upload_image`; for audio
+  or video, ask the user for a public HTTP(S) URL.
 - On an API validation failure, refresh both the model documentation and
   compatibility schema, then correct only the rejected input.
 - On channel or provider failure, report the failure. Do not switch models or

@@ -32,7 +32,7 @@
 
 | 部分 | 大白话解释 | 负责什么 |
 | --- | --- | --- |
-| MCP | AI 助手连接 APIMart 的“工具接口” | 列出模型、读取文档、提交图片/视频任务、查询任务结果 |
+| MCP | AI 助手连接 APIMart 的“工具接口” | 列出模型、读取文档、上传参考图片、提交图片/视频任务、查询任务结果 |
 | Skill | 告诉 AI 助手“这些工具应该按什么顺序使用” | 先读模型文档、正确拼参数、避免重复计费、轮询任务 |
 
 只装 Skill、没有配置 MCP 时，AI 助手看得到操作说明，但没有在线工具可调用。
@@ -48,20 +48,22 @@
   → Skill 判断是图片还是视频
   → get_model_docs 读取该模型的实时 Markdown 文档
   → 必要时 get_model_schema 确认图片/视频操作类型
+  → 有本地参考图片时，upload_image 上传一次并取得 URL
   → generate_image 或 generate_video 提交一次任务
   → 返回 task_id
   → get_task 按建议间隔查询
   → 返回最终图片或视频地址
 ```
 
-APIMart MCP 当前应提供 6 个工具：
+APIMart MCP 当前应提供 7 个工具：
 
 1. `list_models`
 2. `get_model_docs`
 3. `get_model_schema`
-4. `generate_image`
-5. `generate_video`
-6. `get_task`
+4. `upload_image`
+5. `generate_image`
+6. `generate_video`
+7. `get_task`
 
 其中 `get_model_docs` 返回的模型 Markdown 文档，才是该模型真实参数、可选值和组合规则的主要依据。`get_model_schema` 是兼容性契约，不能把其中的通用字段全部当成某个模型都支持的参数。
 
@@ -244,7 +246,7 @@ apimart-dev  https://mcp.apimart.asia/mcp  APIMART_API_KEY       enabled
 
 预期结果：
 
-- MCP 有 6 个工具。
+- MCP 有 7 个工具。
 - 能调用 `get_model_docs`。
 - `Omni-Flash-Ext` 的 `duration` 显示为 `4、6、8、10`。
 - 没有调用 `generate_image` 或 `generate_video`。
@@ -471,7 +473,7 @@ agent mcp list
 agent mcp list-tools apimart-dev
 ```
 
-第二条命令应列出 6 个 APIMart 工具。
+第二条命令应列出 7 个 APIMart 工具。
 
 Cursor 官方会发现 `~/.agents/skills/` 和 `~/.cursor/skills/` 中的用户级 Skill。如果不使用第三方安装器，可以手工把仓库中的整个目录：
 
@@ -567,9 +569,14 @@ Claude Code 官方识别的用户级 Skill 目录是：
 list_models（未指定模型时）
 → get_model_docs（每次生成前）
 → get_model_schema（必要时确认图片/视频类型）
+→ upload_image（仅当有本地参考图片时，上传一次并使用返回 URL）
 → generate_image / generate_video（只提交一次）
 → get_task（按建议间隔轮询）
 ```
+
+音频和视频没有对应上传工具，只能把公开 HTTP(S) URL 放进模型文档指定的
+字段；如果用户只有本地音频或视频附件，应先让用户自行上传并提供 URL，
+不能直接把附件、base64、data URI 或本地路径发给生成接口。
 
 ChatGPT 网页版不会读取你电脑上的 `~/.codex/config.toml`。本地 API Key 透传方案主要面向 Codex、Cursor、Claude Code 等本地 MCP 客户端。若要在 ChatGPT 网页版提供给其他用户，需要走插件/工作区分发与对应的认证方案，不能假设网页端会自动读取本机环境变量。
 
@@ -590,7 +597,7 @@ Accept: application/json, text/event-stream
 
 请把 Key 放在 Apipost 的环境变量或密钥管理中，不要保存进公开的接口文档。响应也可能以 `text/event-stream` 返回；若界面显示 SSE 事件，请读取其中 `data:` 后面的 JSON-RPC 内容。
 
-### 9.2 查看 6 个工具
+### 9.2 查看 7 个工具
 
 请求体：
 
@@ -603,7 +610,7 @@ Accept: application/json, text/event-stream
 }
 ```
 
-检查 `result.tools`，应包含本文第 1 节列出的 6 个工具。
+检查 `result.tools`，应包含本文第 1 节列出的 7 个工具。
 
 ### 9.3 查询模型文档（只读）
 
@@ -632,6 +639,29 @@ Accept: application/json, text/event-stream
 
 `stale: false` 表示返回的是缓存有效期内或刚刚拉取的最新成功文档。`stale: true` 表示刷新失败后返回了最近一次成功内容。
 
+### 9.4 上传一张极小 PNG（会写入对象存储，不调用生成）
+
+下面的 `image_base64` 是一个测试用小 PNG，不含 API Key：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "upload_image",
+    "arguments": {
+      "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "filename": "mcp-upload-check.png"
+    }
+  }
+}
+```
+
+正常结果包含 `url`、`filename`、`content_type`、`bytes` 和
+`created_at`。上传不调用计费生成接口，但会在对象存储中创建一个图片对象，
+因此不要反复执行。音频或视频 base64 会被拒绝。
+
 ## 10. 推荐验收流程
 
 ### 10.1 第一阶段：只读验收（不计费）
@@ -640,7 +670,7 @@ Accept: application/json, text/event-stream
 
 - Skill 能被客户端识别。
 - MCP 显示已连接。
-- `tools/list` 有 6 个工具。
+- `tools/list` 有 7 个工具。
 - `list_models` 能返回模型。
 - `get_model_docs` 能返回指定模型的 Markdown。
 - `get_model_schema` 能识别正确的 `image_generation` 或 `video_generation`。
@@ -653,7 +683,40 @@ Accept: application/json, text/event-stream
 不要提交生成任务。
 ```
 
-### 10.2 第二阶段 A：图片生成前检查（不提交、不计生成费）
+### 10.2 图片上传验收（不计生成费）
+
+准备一张不超过 512 KiB 的 JPEG、PNG、GIF 或 WebP 图片，在支持附件的
+客户端中新建任务并发送：
+
+```text
+使用 APIMart Image & Video Skill，只把我附加的图片上传成可访问 URL。
+调用 upload_image 一次，返回 URL、文件类型和字节数；不要生成任何内容。
+```
+
+验收点：
+
+- 只调用一次 `upload_image`，不调用 `generate_image` 或 `generate_video`。
+- 返回 `http://` 或 `https://` URL，且该地址可以访问。
+- MCP 工具只接收解码后不超过 512 KiB 的图片；更大的本地图片由 Skill
+  改走 `upload-image --file` 的直连 multipart 流程，最大 20 MiB。
+- 实际文件不是 JPEG、PNG、GIF、WebP 时，上传失败。
+- 不会把用户电脑上的本地路径传给远程 MCP；远程 Pod 读取不到该路径。
+
+再做两次拒绝测试，均不应提交生成任务：
+
+```text
+我附了本地 demo.mp4，把它直接作为参考视频生成新视频。
+```
+
+```text
+音频是 data:audio/wav;base64,...，请直接传给模型生成。
+```
+
+当前没有音频或视频上传工具，AI 应要求用户提供公开的 HTTP(S) URL。
+`file://`、本地路径、base64、原始字节和音视频 data URI 都会在计费提交前
+被拒绝。已有的公开图片 URL 不需要重复上传。
+
+### 10.3 第二阶段 A：图片生成前检查（不提交、不计生成费）
 
 先发送下面这条，并等待 AI 停下来：
 
@@ -666,7 +729,7 @@ Accept: application/json, text/event-stream
 
 确认模型、参数、账号余额和可接受预算后，再进入下一步。AI 如果在这一轮已经提交任务，说明人工确认流程没有生效，应立即停止后续测试并检查是否产生账单。
 
-### 10.3 第二阶段 B：单独确认图片生成（会计费）
+### 10.4 第二阶段 B：单独确认图片生成（会计费）
 
 只有你确实接受上一轮方案时，才单独发送：
 
@@ -687,7 +750,7 @@ Accept: application/json, text/event-stream
 - `completed` 时返回的图片地址可以打开。
 - 没有在失败后擅自重新提交第二个计费任务。
 
-### 10.4 幂等键与超时恢复（防止重复计费）
+### 10.5 幂等键与超时恢复（防止重复计费）
 
 幂等键不是 API Key，不是秘密；它是一次“逻辑生成请求”的唯一编号。例如：
 
@@ -710,7 +773,7 @@ apimart-img-20260801T120000Z-a1b2c3
 3. 只有保留了原幂等键、准确模型和完整输入时，才可用三者完全相同的 `generate_*` 调用恢复；服务端会按幂等记录返回原请求，而不是创建另一笔不同请求。
 4. 如果任一项没有保存，停止操作并让管理员按日志或账单核对，不能猜一个新键继续。
 
-### 10.5 第三阶段：视频生成验收（可选，会计费）
+### 10.6 第三阶段：视频生成验收（可选，会计费）
 
 如果图片端到端已经通过、当前需求不要求视频，可以跳过本阶段。需要验证视频时，同样先拆成两轮。
 
@@ -767,7 +830,7 @@ grep -nF "get_model_docs" ~/.agents/skills/apimart-generate-media/SKILL.md
 - 确认使用的是目标环境对应的 Key。
 - 在 APIMart 平台重新生成 Key 后，更新本机环境变量并重启客户端。
 
-### 11.5 只有 5 个工具，没有 `get_model_docs`
+### 11.5 工具少于 7 个，缺少 `get_model_docs` 或 `upload_image`
 
 - 客户端仍连接旧版本 MCP。
 - 完全重启客户端并重新查看工具列表。
@@ -834,6 +897,18 @@ get_model_schema 只用于确认操作和传输契约。
 - MCP 客户端只需配置 MCP URL 与 `APIMART_API_KEY`。
 - `APIMART_BASE_URL` 只属于本地 API 备用模式，不属于 MCP 配置。
 - 不要把 `APIMART_BASE_URL` 设置成 `https://mcp.apimart.asia/mcp`。
+
+### 11.12 `upload_image` 返回 413
+
+- MCP `upload_image` 的图片解码后不能超过 512 KiB；base64 文本通常还会
+  比原图大约三分之一。
+- 不要把公网 `MCP_BODY_LIMIT_BYTES` 和 Ingress 上限调到 32 MiB 来塞大图，
+  这会产生明显的内存放大和拒绝服务风险。
+- 大于 512 KiB 的本地图片使用 Skill 自带的 `upload-image --file` 直连
+  multipart 流程，支持到 20 MiB。纯远程 MCP 若将来需要大图，应另做
+  预签名私有暂存、完成校验和未完成对象清理。
+- 不要通过改扩展名绕过限制；服务会按真实文件内容识别 MIME 类型。
+- 不要改用音频或视频上传尝试绕过，当前只开放图片上传。
 
 ## 12. 从 dev 切回正式 main
 
@@ -903,8 +978,10 @@ Cursor 可把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`；Claude
 - [ ] MCP 配置保存的是环境变量名，而不是裸 Key。
 - [ ] 测试使用低额度测试 Key。
 - [ ] MCP URL 使用 HTTPS。
-- [ ] 线上工具数量为 6。
+- [ ] 线上工具数量为 7。
 - [ ] 每次生成前读取该模型的实时文档。
+- [ ] `upload_image` 能上传允许格式的参考图片，错误格式和超大图片会被拒绝。
+- [ ] 音频和视频只使用公开 HTTP(S) URL，没有上传本地文件、base64 或 data URI。
 - [ ] 至少完成一次所需媒体类型的端到端测试；不需要视频时没有为了验收而额外计费。
 - [ ] 首次提交前保存了幂等键、模型和完整输入；恢复时三者完全复用。
 - [ ] 结果 URL 可以打开并已及时保存。

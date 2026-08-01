@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 
 const DEFAULT_BASE_URL = "https://api.apimart.ai";
 const RESPONSE_VERSION = "2026-07-27";
@@ -13,6 +14,7 @@ const GENERATION_OPERATIONS = new Set([
 ]);
 const LANGUAGES = new Set(["zh", "en", "ko", "ja"]);
 const IDEMPOTENCY_KEY = /^[!-~]{1,191}$/;
+const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 class ClientError extends Error {
   constructor(message, options = {}) {
@@ -56,6 +58,9 @@ async function main() {
     case "schema":
       await getSchema(config, options);
       return;
+    case "upload-image":
+      await uploadImage(config, options);
+      return;
     case "generate-image":
       await generate(config, options, "image");
       return;
@@ -81,6 +86,7 @@ Usage:
   apimart-media.mjs models [--query TEXT] [--limit 1-200] [--offset N]
   apimart-media.mjs docs --model ID
   apimart-media.mjs schema --model ID [--operation image_generation|video_generation]
+  apimart-media.mjs upload-image --file PATH
   apimart-media.mjs generate-image --model ID (--input-json JSON|--input-file PATH) --idempotency-key KEY
   apimart-media.mjs generate-video --model ID (--input-json JSON|--input-file PATH) --idempotency-key KEY
   apimart-media.mjs task --task-id ID [--language zh|en|ko|ja]
@@ -336,6 +342,75 @@ async function fetchSchema(config, model, operation) {
   return schema;
 }
 
+async function uploadImage(config, options) {
+  assertAllowedOptions(options, ["--file"]);
+  const filePath = requiredOption(options, "--file");
+  let data;
+  try {
+    data = await readFile(filePath);
+  } catch (error) {
+    throw new ClientError("Could not read the image file.", {
+      code: "image_file_error",
+      param: "file",
+      cause: error,
+    });
+  }
+  if (data.length === 0) {
+    throw new ClientError("The image file is empty.", {
+      code: "invalid_image_file",
+      param: "file",
+    });
+  }
+  if (data.length > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new ClientError("The image file exceeds the 20 MiB limit.", {
+      code: "image_too_large",
+      param: "file",
+    });
+  }
+
+  const contentType = detectImageContentType(data);
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([data], { type: contentType }),
+    basename(filePath) || `upload${imageExtension(contentType)}`,
+  );
+  const response = await requestJson(config, "/v1/uploads/images", {
+    method: "POST",
+    timeoutMs: config.submitTimeoutMs,
+    formBody: form,
+    outcomeKind: "upload",
+  });
+  let upload;
+  try {
+    upload = requireObject(response.data, "image upload response");
+    if (
+      !isHttpUrl(upload.url) ||
+      typeof upload.filename !== "string" ||
+      upload.filename.length === 0 ||
+      !["image/jpeg", "image/png", "image/gif", "image/webp"].includes(
+        upload.content_type,
+      ) ||
+      !Number.isSafeInteger(upload.bytes) ||
+      upload.bytes <= 0 ||
+      !Number.isSafeInteger(upload.created_at) ||
+      upload.created_at <= 0
+    ) {
+      throw invalidResponse(
+        "The image upload response did not match the expected contract.",
+      );
+    }
+  } catch (error) {
+    throw uploadOutcomeUnknownError(error, response.status);
+  }
+  printJson({
+    object: "image.upload",
+    ...upload,
+    usage_note:
+      "Use `url` in the exact image field documented for the selected model. Do not pass the local path or base64 data to a generation request.",
+  });
+}
+
 async function generate(config, options, kind) {
   assertAllowedOptions(options, [
     "--model",
@@ -365,6 +440,7 @@ async function generate(config, options, kind) {
       },
     );
   }
+  assertRemoteMediaReferences(input);
 
   const expectedOperation =
     kind === "image" ? "image_generation" : "video_generation";
@@ -392,6 +468,7 @@ async function generate(config, options, kind) {
       "X-APIMart-Response-Version": RESPONSE_VERSION,
     },
     idempotencyKey,
+    outcomeKind: "generation",
   });
   printJson(normalizeGeneration(response, idempotencyKey));
 }
@@ -547,6 +624,12 @@ async function requestJson(config, path, options) {
 
   try {
     try {
+      if (options.body !== undefined && options.formBody !== undefined) {
+        throw new ClientError(
+          "A request cannot contain both JSON and multipart bodies.",
+          { code: "invalid_request_body" },
+        );
+      }
       const response = await fetch(`${config.baseUrl}${path}`, {
         method: options.method,
         redirect: "error",
@@ -559,9 +642,10 @@ async function requestJson(config, path, options) {
           ...options.headers,
         },
         body:
-          options.body === undefined
+          options.formBody ??
+          (options.body === undefined
             ? undefined
-            : JSON.stringify(options.body),
+            : JSON.stringify(options.body)),
         signal: controller.signal,
       });
 
@@ -578,7 +662,7 @@ async function requestJson(config, path, options) {
             code: "response_too_large",
             type: "api_response_error",
             status: response.status,
-            indeterminate: options.method === "POST",
+            indeterminate: options.outcomeKind !== undefined,
             idempotencyKey: options.idempotencyKey,
           },
         );
@@ -592,7 +676,7 @@ async function requestJson(config, path, options) {
             code: "response_too_large",
             type: "api_response_error",
             status: response.status,
-            indeterminate: options.method === "POST",
+            indeterminate: options.outcomeKind !== undefined,
             idempotencyKey: options.idempotencyKey,
           },
         );
@@ -607,7 +691,7 @@ async function requestJson(config, path, options) {
             code: "invalid_json_response",
             type: "api_response_error",
             status: response.status,
-            indeterminate: options.method === "POST",
+            indeterminate: options.outcomeKind !== undefined,
             idempotencyKey: options.idempotencyKey,
             cause: error,
           });
@@ -637,23 +721,31 @@ async function requestJson(config, path, options) {
       };
     } catch (error) {
       if (error instanceof ClientError) {
+        if (options.outcomeKind === "upload" && error.indeterminate) {
+          throw uploadOutcomeUnknownError(error, error.status);
+        }
         throw error;
       }
-      const isSubmit = options.method === "POST";
+      const isSubmit = options.outcomeKind !== undefined;
+      const isUpload = options.outcomeKind === "upload";
       throw new ClientError(
         isSubmit
-          ? "The generation request did not return a usable response. Its outcome may be unknown; preserve the idempotency key."
+          ? isUpload
+            ? "The image upload may have created an object, but no usable URL was received; do not retry automatically."
+            : "The generation request did not return a usable response. Its outcome may be unknown; preserve the idempotency key."
           : controller.signal.aborted
             ? "The APIMart request timed out."
             : "Could not reach or read the APIMart API.",
         {
           code: isSubmit
-            ? "request_outcome_unknown"
+            ? isUpload
+              ? "upload_outcome_unknown"
+              : "request_outcome_unknown"
             : controller.signal.aborted
               ? "request_timeout"
               : "network_error",
           type: isSubmit ? "api_response_error" : "transport_error",
-          retryable: true,
+          retryable: isUpload ? false : true,
           indeterminate: isSubmit,
           idempotencyKey: options.idempotencyKey,
           cause: error,
@@ -663,6 +755,328 @@ async function requestJson(config, path, options) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function uploadOutcomeUnknownError(cause, status) {
+  return new ClientError(
+    "The image upload may have created an object, but no usable URL was received; do not retry automatically.",
+    {
+      code: "upload_outcome_unknown",
+      type: "api_response_error",
+      status,
+      retryable: false,
+      indeterminate: true,
+      cause,
+    },
+  );
+}
+
+function assertRemoteMediaReferences(
+  value,
+  path = "input",
+  context,
+  fieldName,
+) {
+  if (fieldName && isDirectFileKey(fieldName)) {
+    if (context === "image") {
+      throw imageUploadRequired(path);
+    }
+    throw unsupportedMediaFile(path);
+  }
+  if (
+    fieldName &&
+    isUrlKey(fieldName) &&
+    typeof value !== "string" &&
+    !Array.isArray(value)
+  ) {
+    throw context === "image"
+      ? imageUploadRequired(path)
+      : mediaUrlRequired(path);
+  }
+
+  if (typeof value === "string") {
+    if (/^data:(?:audio|video)\//i.test(value.trim())) {
+      throw unsupportedMediaFile(path);
+    }
+    if (/^data:image\//i.test(value.trim())) {
+      throw imageUploadRequired(path);
+    }
+    if (context && fieldName && isMediaMetadataKey(fieldName)) {
+      return;
+    }
+    if (
+      fieldName &&
+      (isUrlKey(fieldName) ||
+        (context && isDirectMediaSourceKey(fieldName, context)) ||
+        (context && context !== "image" && !isMediaMetadataKey(fieldName))) &&
+      !isHttpUrl(value)
+    ) {
+      throw context === "image"
+        ? imageUploadRequired(path)
+        : mediaUrlRequired(path);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (
+      fieldName &&
+      (isUrlKey(fieldName) ||
+        (context && isUnambiguousMediaSourceKey(fieldName, context)) ||
+        (context && context !== "image" && !isMediaMetadataKey(fieldName))) &&
+      value.some((item) => typeof item !== "string")
+    ) {
+      throw context === "image"
+        ? imageUploadRequired(path)
+        : mediaUrlRequired(path);
+    }
+    value.forEach((item, index) =>
+      assertRemoteMediaReferences(
+        item,
+        `${path}[${index}]`,
+        context,
+        fieldName,
+      ),
+    );
+    return;
+  }
+  if (!isObject(value)) {
+    return;
+  }
+
+  const discriminatorContext = mediaContextFromObject(value);
+  const objectContext = context ?? discriminatorContext;
+
+  for (const [key, item] of Object.entries(value)) {
+    const normalizedKey = normalizeMediaKey(key);
+    const ownContext = mediaContextForKey(normalizedKey);
+    const nextContext = ownContext ?? objectContext;
+    assertRemoteMediaReferences(
+      item,
+      `${path}.${key}`,
+      nextContext,
+      normalizedKey,
+    );
+  }
+}
+
+function mediaContextForKey(key) {
+  const tokens = key.split("_").filter(Boolean);
+  for (const kind of ["image", "audio", "video"]) {
+    if (tokens.includes(kind)) return kind;
+  }
+  return undefined;
+}
+
+function mediaContextFromObject(value) {
+  for (const key of ["type", "kind", "media_type", "input_type"]) {
+    if (typeof value[key] === "string") {
+      const context = mediaContextForKey(normalizeMediaKey(value[key]));
+      if (context) return context;
+    }
+  }
+  return undefined;
+}
+
+function isUrlKey(key) {
+  const tokens = key.split("_").filter(Boolean);
+  return tokens.includes("url") || tokens.includes("urls");
+}
+
+function isDirectFileKey(key) {
+  const tokens = key.split("_").filter(Boolean);
+  return (
+    tokens.some((token) =>
+      [
+        "base64",
+        "binary",
+        "blob",
+        "bytes",
+        "file",
+        "files",
+        "path",
+        "paths",
+      ].includes(token),
+    ) || tokens.at(-1) === "data"
+  );
+}
+
+function isDirectMediaSourceKey(key, context) {
+  const tokens = key.split("_").filter(Boolean);
+  const sourceTokens = [
+    "content",
+    "input",
+    "payload",
+    "reference",
+    "source",
+    "value",
+  ];
+  return (
+    (tokens.length === 1 &&
+      (tokens[0] === context || sourceTokens.includes(tokens[0]))) ||
+    tokens.at(-1) === context ||
+    (tokens.length === 2 &&
+      tokens.some((token) => sourceTokens.includes(token)))
+  );
+}
+
+function isUnambiguousMediaSourceKey(key, context) {
+  const tokens = key.split("_").filter(Boolean);
+  const sourceTokens = [
+    "content",
+    "input",
+    "payload",
+    "reference",
+    "source",
+    "value",
+  ];
+  return (
+    (tokens.length === 1 &&
+      (tokens[0] === context || sourceTokens.includes(tokens[0]))) ||
+    (tokens.length === 2 &&
+      tokens.includes(context) &&
+      tokens.some((token) => sourceTokens.includes(token)))
+  );
+}
+
+function isMediaMetadataKey(key) {
+  const metadataSuffixes = new Set([
+    "aspect",
+    "caption",
+    "channel",
+    "channels",
+    "codec",
+    "description",
+    "detail",
+    "duration",
+    "end",
+    "filename",
+    "format",
+    "fps",
+    "id",
+    "index",
+    "kind",
+    "label",
+    "language",
+    "mime",
+    "model",
+    "name",
+    "prompt",
+    "quality",
+    "rate",
+    "ratio",
+    "resolution",
+    "role",
+    "sample",
+    "start",
+    "timestamp",
+    "timestamps",
+    "time",
+    "transcript",
+    "type",
+  ]);
+  const tokens = key.split("_").filter(Boolean);
+  return tokens.length > 0 && metadataSuffixes.has(tokens.at(-1));
+}
+
+function normalizeMediaKey(value) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .toLowerCase();
+}
+
+function mediaUrlRequired(param) {
+  return new ClientError(
+    "Direct audio or video file data is not supported. Provide a public HTTP(S) URL instead.",
+    {
+      code: "media_url_required",
+      param,
+    },
+  );
+}
+
+function unsupportedMediaFile(param) {
+  return new ClientError(
+    "Direct audio or video file upload is not supported. Provide a public HTTP(S) URL instead.",
+    {
+      code: "media_file_upload_not_supported",
+      param,
+    },
+  );
+}
+
+function imageUploadRequired(param) {
+  return new ClientError(
+    "Upload local or base64 image data first, then use the returned HTTP(S) URL in the generation input.",
+    {
+      code: "image_requires_upload",
+      param,
+    },
+  );
+}
+
+function isHttpUrl(value) {
+  if (typeof value !== "string" || value.trim() !== value || value === "") {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return (
+      ["http:", "https:"].includes(parsed.protocol) &&
+      parsed.username === "" &&
+      parsed.password === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function detectImageContentType(data) {
+  if (
+    data.length >= 3 &&
+    data[0] === 0xff &&
+    data[1] === 0xd8 &&
+    data[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    data.length >= 8 &&
+    data.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+  ) {
+    return "image/png";
+  }
+  if (
+    data.length >= 6 &&
+    ["GIF87a", "GIF89a"].includes(data.subarray(0, 6).toString("ascii"))
+  ) {
+    return "image/gif";
+  }
+  if (
+    data.length >= 12 &&
+    data.subarray(0, 4).toString("ascii") === "RIFF" &&
+    data.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  throw new ClientError(
+    "Unsupported image content. Allowed formats: JPEG, PNG, GIF, and WebP.",
+    {
+      code: "unsupported_image_type",
+      param: "file",
+    },
+  );
+}
+
+function imageExtension(contentType) {
+  return {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+  }[contentType];
 }
 
 function extractApiError(payload, status) {

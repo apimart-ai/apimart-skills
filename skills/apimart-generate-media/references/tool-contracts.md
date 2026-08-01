@@ -76,6 +76,40 @@ of truth for that.
 
 Do not put `model` inside a generation tool's `input` object.
 
+## `upload_image`
+
+Non-billable image upload:
+
+```json
+{
+  "image_base64": "data:image/png;base64,iVBORw0KGgo...",
+  "filename": "optional-reference.png"
+}
+```
+
+- `image_base64` may be a base64 payload or an image data URI. It must decode
+  to JPEG, PNG, GIF, or WebP content no larger than 512 KiB. This keeps public
+  MCP JSON requests inside the default 1 MiB parser boundary.
+- The server detects the format from decoded bytes; a filename or claimed MIME
+  type cannot turn another file type into an accepted image.
+- `filename` is optional metadata. Never pass a local path: the remote MCP Pod
+  cannot read files on the user's computer.
+- The result includes `url`, `filename`, `content_type`, `bytes`, and
+  `created_at`. Put the returned HTTP(S) `url` into the exact image field from
+  `get_model_docs`. No expiry timestamp is returned; use the URL promptly and
+  do not assume permanent retention.
+- This tool does not upload audio or video. It does not use a generation
+  idempotency key and does not automatically retry an uncertain upload, because
+  a retry may create a duplicate stored object.
+- Stop before calling a generation tool when upload fails or no valid URL is
+  returned.
+
+Base64 adds roughly one third to the request size. Do not raise the public MCP
+JSON limit to carry larger files: string copies, decoding, and multipart
+assembly amplify memory use. For a larger locally readable image, use the
+bundled local `upload-image --file` command, which calls APIMart's multipart
+endpoint directly and supports up to 20 MiB.
+
 ## `generate_image` and `generate_video`
 
 Billable submission:
@@ -91,6 +125,12 @@ Billable submission:
 ```
 
 - `input` contains every generation parameter except `model`.
+- Local or base64 image data must first pass through `upload_image`; generation
+  input uses its returned HTTP(S) URL.
+- Audio and video fields accept only public HTTP(S) URLs. Direct attachments,
+  local paths, `file://`, raw/base64 bytes, `data:audio/...`, and
+  `data:video/...` are rejected before the billable API is called. There is no
+  APIMart audio or video upload MCP tool yet.
 - Always supply `idempotency_key`; omitting it forfeits disconnect-safe
   recovery because a server-generated key may not reach the client.
 - `idempotency_key` is 1-191 visible ASCII characters without spaces.
@@ -130,3 +170,6 @@ One read-only status lookup:
 | Unknown submission outcome | Reuse the same idempotency key, model, and input |
 | Terminal failed task | Stop polling and report the task failure |
 | Missing MCP authentication | Repair client configuration; never paste credentials into chat |
+| Local/base64 image reference | Call `upload_image` once, then use its returned URL |
+| Local/base64 audio or video reference | Ask the user for a public HTTP(S) URL; do not submit |
+| Image upload failed or returned no URL | Stop before generation; do not guess or embed the file |
