@@ -20,6 +20,7 @@ The bundled client reads:
 | `APIMART_BASE_URL` | No | API origin; defaults to `https://api.apimart.ai` |
 | `APIMART_REQUEST_TIMEOUT_MS` | No | Read request timeout; defaults to `15000` |
 | `APIMART_SUBMIT_TIMEOUT_MS` | No | Submit timeout; defaults to `45000` |
+| `APIMART_UPLOAD_TIMEOUT_MS` | No | Image upload timeout; defaults to `120000` |
 | `APIMART_MAX_RESPONSE_BYTES` | No | Maximum JSON response size; defaults to `33554432` |
 
 The client sends:
@@ -151,10 +152,10 @@ JPEG, PNG, GIF, or WebP bytes and returns:
 ```
 
 Use `url` in the model-specific image field. Do not pass the local path,
-base64, or data URI to a generation request. The response has no explicit
-expiry timestamp, so use the URL promptly. Uploads are not automatically
-retried because the endpoint has no upload idempotency key; an uncertain retry
-could create a duplicate object.
+base64, or data URI to a generation request. The returned upload URL is valid
+for 72 hours after creation; use it or download it before it expires. Uploads
+are not automatically retried because the endpoint has no upload idempotency
+key; an uncertain retry could create a duplicate object.
 
 Do not enforce a separate image byte limit in the MCP tool or local client.
 Submit the upload once and surface the API response, including `413` when the
@@ -179,10 +180,14 @@ The local client normalizes a generation response with:
 - `next_poll_after_seconds`: suggested delay, currently 2 seconds.
 - `replayed`: true when the server reports an idempotent replay.
 - `response_version`: negotiated response contract version.
+- `media_url_ttl_hours`: media URL validity, currently 72 hours.
 
 The `task` command returns the same polling fields. Query only while
 `should_poll` is true. Stop after 10 minutes or 120 checks by default,
 whichever comes first, and return the task ID for later resumption.
+Media URLs returned by synchronous results or completed tasks are valid for 72
+hours. User-facing responses must state 72 hours explicitly, never 24 hours or
+an unknown duration.
 
 ## Error Handling
 

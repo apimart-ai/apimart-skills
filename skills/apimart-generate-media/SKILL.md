@@ -171,7 +171,8 @@ node <skill-directory>/scripts/apimart-media.mjs upload-image \
 Do not reject a local image based on its byte size. Submit it once and surface
 the upload API's response. Stop before generation if upload fails, the format
 is unsupported, or no valid URL is returned. An image upload is not a billable
-generation and does not use a generation idempotency key.
+generation and does not use a generation idempotency key. The returned upload
+URL is valid for 72 hours; use it or download it before it expires.
 
 ### 5. Submit Exactly Once
 
@@ -209,6 +210,10 @@ submission with a new key.
 - When the polling budget is exhausted, return the exact task ID so the user
   can resume later.
 - Stop when `terminal` is true. Both `completed` and `failed` are terminal.
+- When an upload or completed generation returns a media URL, state that the
+  URL is valid for 72 hours and recommend downloading it before then. Never
+  claim 24 hours, say the duration is unknown, or use vague wording such as
+  "may expire".
 
 Local task example:
 
@@ -246,5 +251,7 @@ error and do not start another billable request without fresh user intent.
 
 Reply in the user's language. Report the selected model, whether the result is
 synchronous or asynchronous, the terminal status, and returned media URLs.
-Include the task ID when it helps the user resume or diagnose a task. Never
-expose credentials.
+Include the task ID when it helps the user resume or diagnose a task. For every
+returned upload or generated-media URL, explicitly state its 72-hour validity.
+In Chinese, use: `链接有效期为 72 小时，请及时下载保存。` Never state 24
+hours or an unknown duration. Never expose credentials.

@@ -7,6 +7,7 @@ import { basename } from "node:path";
 
 const DEFAULT_BASE_URL = "https://api.apimart.ai";
 const RESPONSE_VERSION = "2026-07-27";
+const MEDIA_URL_TTL_HOURS = 72;
 const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 const GENERATION_OPERATIONS = new Set([
@@ -96,6 +97,7 @@ Environment:
   APIMART_BASE_URL         Default: https://api.apimart.ai
   APIMART_REQUEST_TIMEOUT_MS
   APIMART_SUBMIT_TIMEOUT_MS
+  APIMART_UPLOAD_TIMEOUT_MS
   APIMART_MAX_RESPONSE_BYTES
 `);
 }
@@ -165,6 +167,10 @@ function loadConfig() {
     submitTimeoutMs: positiveIntegerEnv(
       "APIMART_SUBMIT_TIMEOUT_MS",
       45_000,
+    ),
+    uploadTimeoutMs: positiveIntegerEnv(
+      "APIMART_UPLOAD_TIMEOUT_MS",
+      120_000,
     ),
     maxResponseBytes: positiveIntegerEnv(
       "APIMART_MAX_RESPONSE_BYTES",
@@ -388,7 +394,7 @@ async function uploadImage(config, options) {
   );
   const response = await requestJson(config, "/v1/uploads/images", {
     method: "POST",
-    timeoutMs: config.submitTimeoutMs,
+    timeoutMs: config.uploadTimeoutMs,
     formBody: form,
     outcomeKind: "upload",
   });
@@ -417,8 +423,9 @@ async function uploadImage(config, options) {
   printJson({
     object: "image.upload",
     ...upload,
+    media_url_ttl_hours: MEDIA_URL_TTL_HOURS,
     usage_note:
-      "Use `url` in the exact image field documented for the selected model. Do not pass the local path or base64 data to a generation request.",
+      "Use `url` in the exact image field documented for the selected model. Do not pass the local path or base64 data to a generation request. The URL is valid for 72 hours; download or use it before it expires.",
   });
 }
 
@@ -574,6 +581,7 @@ function normalizeGeneration(response, idempotencyKey) {
     task_id: kind === "task" ? data.id : undefined,
     status,
     terminal,
+    media_url_ttl_hours: MEDIA_URL_TTL_HOURS,
     should_poll: kind === "task" && !terminal,
     next_poll_after_seconds:
       kind === "task" && !terminal ? 2 : undefined,
@@ -619,6 +627,7 @@ async function getTask(config, options) {
           : taskId,
       status,
       terminal,
+      media_url_ttl_hours: MEDIA_URL_TTL_HOURS,
       should_poll: !terminal,
       next_poll_after_seconds: terminal ? undefined : 2,
     }),

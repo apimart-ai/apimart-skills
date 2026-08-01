@@ -96,8 +96,8 @@ Non-billable image upload:
   cannot read files on the user's computer.
 - The result includes `url`, `filename`, `content_type`, `bytes`, and
   `created_at`. Put the returned HTTP(S) `url` into the exact image field from
-  `get_model_docs`. No expiry timestamp is returned; use the URL promptly and
-  do not assume permanent retention.
+  `get_model_docs`. The URL is valid for 72 hours after upload; use it or
+  download it before it expires.
 - This tool does not upload audio or video. It does not use a generation
   idempotency key and does not automatically retry an uncertain upload, because
   a retry may create a duplicate stored object.
@@ -138,6 +138,8 @@ Billable submission:
 - `kind: result` is synchronous completion.
 - `kind: task` includes `task_id`, `should_poll`, and a suggested interval.
 - Preserve the returned `idempotency_key` for recovery.
+- Media URLs returned by a synchronous result are valid for 72 hours. State
+  that duration explicitly and recommend downloading the result in time.
 
 ## `get_task`
 
@@ -158,6 +160,8 @@ One read-only status lookup:
   exhausted, stop and return the exact `task_id` for later resumption.
 - `terminal: true` means stop polling.
 - Both `completed` and `failed` are terminal statuses.
+- Media URLs in a completed task are valid for 72 hours. Never describe them
+  as valid for 24 hours or as having an unknown duration.
 
 ## Recovery Matrix
 
