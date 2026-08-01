@@ -49,11 +49,11 @@ Choose one mode for a logical generation. Do not submit through one mode and
 silently retry through the other. Read-only diagnosis may inspect the other
 mode, but it must never turn into a second billable submission.
 
-Image upload is the one non-billable transport exception: MCP `upload_image`
-is limited to 512 KiB decoded images so public MCP requests stay below 1 MiB.
-When a locally readable image is larger, use the bundled local `upload-image`
-command (up to 20 MiB) to obtain its URL, then continue the generation in the
-original mode. This is not a second generation submission.
+Image upload is the one non-billable transport exception. For a locally
+readable image, prefer the bundled local `upload-image` command even when the
+generation itself uses MCP: it streams multipart data directly to APIMart and
+lets `/v1/uploads/images` decide whether the file is accepted. This is not a
+second generation submission.
 
 ## Command Mapping
 
@@ -158,18 +158,20 @@ field and the remaining properties in `input`.
 In local mode, pass the model through `--model`. Use `--input-json` for a small
 payload or `--input-file` for a complex JSON object.
 
-In MCP mode, `upload_image` accepts JPEG, PNG, GIF, or WebP image data up to
-512 KiB decoded and returns `url`. In local mode, upload a local file up to
-20 MiB with:
+In MCP mode, `upload_image` accepts JPEG, PNG, GIF, or WebP image data and
+returns `url`; it does not impose an image-size rule before calling APIMart.
+Generic MCP client, HTTP, or gateway request limits may still apply. For a
+locally readable file, stream it directly to APIMart with:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs upload-image \
   --file "<local-image-path>"
 ```
 
-Stop before generation if upload fails, the format or size is unsupported, or
-no valid URL is returned. An image upload is not a billable generation and
-does not use a generation idempotency key.
+Do not reject a local image based on its byte size. Submit it once and surface
+the upload API's response. Stop before generation if upload fails, the format
+is unsupported, or no valid URL is returned. An image upload is not a billable
+generation and does not use a generation idempotency key.
 
 ### 5. Submit Exactly Once
 

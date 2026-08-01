@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { openAsBlob } from "node:fs";
+import { open, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
 const DEFAULT_BASE_URL = "https://api.apimart.ai";
@@ -14,7 +15,6 @@ const GENERATION_OPERATIONS = new Set([
 ]);
 const LANGUAGES = new Set(["zh", "en", "ko", "ja"]);
 const IDEMPOTENCY_KEY = /^[!-~]{1,191}$/;
-const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 class ClientError extends Error {
   constructor(message, options = {}) {
@@ -345,9 +345,16 @@ async function fetchSchema(config, model, operation) {
 async function uploadImage(config, options) {
   assertAllowedOptions(options, ["--file"]);
   const filePath = requiredOption(options, "--file");
-  let data;
+  let header;
   try {
-    data = await readFile(filePath);
+    const file = await open(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(12);
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+      header = buffer.subarray(0, bytesRead);
+    } finally {
+      await file.close();
+    }
   } catch (error) {
     throw new ClientError("Could not read the image file.", {
       code: "image_file_error",
@@ -355,24 +362,28 @@ async function uploadImage(config, options) {
       cause: error,
     });
   }
-  if (data.length === 0) {
+  if (header.length === 0) {
     throw new ClientError("The image file is empty.", {
       code: "invalid_image_file",
       param: "file",
     });
   }
-  if (data.length > MAX_IMAGE_UPLOAD_BYTES) {
-    throw new ClientError("The image file exceeds the 20 MiB limit.", {
-      code: "image_too_large",
+
+  const contentType = detectImageContentType(header);
+  let imageBlob;
+  try {
+    imageBlob = await openAsBlob(filePath, { type: contentType });
+  } catch (error) {
+    throw new ClientError("Could not open the image file for upload.", {
+      code: "image_file_error",
       param: "file",
+      cause: error,
     });
   }
-
-  const contentType = detectImageContentType(data);
   const form = new FormData();
   form.append(
     "file",
-    new Blob([data], { type: contentType }),
+    imageBlob,
     basename(filePath) || `upload${imageExtension(contentType)}`,
   );
   const response = await requestJson(config, "/v1/uploads/images", {

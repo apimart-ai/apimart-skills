@@ -88,8 +88,8 @@ Non-billable image upload:
 ```
 
 - `image_base64` may be a base64 payload or an image data URI. It must decode
-  to JPEG, PNG, GIF, or WebP content no larger than 512 KiB. This keeps public
-  MCP JSON requests inside the default 1 MiB parser boundary.
+  to JPEG, PNG, GIF, or WebP content. The tool does not apply an image byte-size
+  rule; `/v1/uploads/images` decides whether the upload is accepted.
 - The server detects the format from decoded bytes; a filename or claimed MIME
   type cannot turn another file type into an accepted image.
 - `filename` is optional metadata. Never pass a local path: the remote MCP Pod
@@ -104,11 +104,11 @@ Non-billable image upload:
 - Stop before calling a generation tool when upload fails or no valid URL is
   returned.
 
-Base64 adds roughly one third to the request size. Do not raise the public MCP
-JSON limit to carry larger files: string copies, decoding, and multipart
-assembly amplify memory use. For a larger locally readable image, use the
-bundled local `upload-image --file` command, which calls APIMart's multipart
-endpoint directly and supports up to 20 MiB.
+Base64 adds roughly one third to the request size, so generic MCP client,
+Ingress, or HTTP body limits may reject a request before the tool runs. For any
+locally readable image, prefer the bundled local `upload-image --file` command;
+it streams multipart data directly to APIMart without a local size precheck and
+surfaces the upload API's result.
 
 ## `generate_image` and `generate_video`
 

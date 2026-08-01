@@ -685,20 +685,21 @@ Accept: application/json, text/event-stream
 
 ### 10.2 图片上传验收（不计生成费）
 
-准备一张不超过 512 KiB 的 JPEG、PNG、GIF 或 WebP 图片，在支持附件的
-客户端中新建任务并发送：
+准备一张 JPEG、PNG、GIF 或 WebP 图片，在支持附件的客户端中新建任务并
+发送；不要为了客户端测试而主动压缩或裁剪文件：
 
 ```text
 使用 APIMart Image & Video Skill，只把我附加的图片上传成可访问 URL。
-调用 upload_image 一次，返回 URL、文件类型和字节数；不要生成任何内容。
+只上传一次，返回 URL、文件类型和字节数；不要生成任何内容。
 ```
 
 验收点：
 
-- 只调用一次 `upload_image`，不调用 `generate_image` 或 `generate_video`。
+- 只上传一次，不调用 `generate_image` 或 `generate_video`。本地可读文件优先
+  由 Skill 使用 `upload-image --file` 直连 APIMart；其他客户端可调用 MCP
+  `upload_image`。
 - 返回 `http://` 或 `https://` URL，且该地址可以访问。
-- MCP 工具只接收解码后不超过 512 KiB 的图片；更大的本地图片由 Skill
-  改走 `upload-image --file` 的直连 multipart 流程，最大 20 MiB。
+- Skill 和 MCP 不按图片字节数预先拒绝，最终以上传接口响应为准。
 - 实际文件不是 JPEG、PNG、GIF、WebP 时，上传失败。
 - 不会把用户电脑上的本地路径传给远程 MCP；远程 Pod 读取不到该路径。
 
@@ -900,13 +901,13 @@ get_model_schema 只用于确认操作和传输契约。
 
 ### 11.12 `upload_image` 返回 413
 
-- MCP `upload_image` 的图片解码后不能超过 512 KiB；base64 文本通常还会
-  比原图大约三分之一。
-- 不要把公网 `MCP_BODY_LIMIT_BYTES` 和 Ingress 上限调到 32 MiB 来塞大图，
-  这会产生明显的内存放大和拒绝服务风险。
-- 大于 512 KiB 的本地图片使用 Skill 自带的 `upload-image --file` 直连
-  multipart 流程，支持到 20 MiB。纯远程 MCP 若将来需要大图，应另做
-  预签名私有暂存、完成校验和未完成对象清理。
+- 如果 `413` 来自 APIMart 上传接口，说明接口拒绝了本次文件。原样反馈，
+  不要自动重试、拆分文件或改参数绕过。
+- 如果请求尚未调用工具就被 MCP 客户端、Ingress 或 HTTP body parser 拒绝，
+  这是通用传输限制。对本地可读图片使用 Skill 的 `upload-image --file`
+  直连 multipart 流程，让 APIMart 上传接口作最终判断。
+- Skill 和 MCP 不维护另一套图片字节数规则，也不把基础设施传输上限描述成
+  APIMart 的图片大小限制。
 - 不要通过改扩展名绕过限制；服务会按真实文件内容识别 MIME 类型。
 - 不要改用音频或视频上传尝试绕过，当前只开放图片上传。
 

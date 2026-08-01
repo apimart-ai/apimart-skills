@@ -73,8 +73,10 @@ Upload a local reference image and receive an HTTP(S) URL:
 node "$CLIENT" upload-image --file <local-image-path>
 ```
 
-The upload accepts JPEG, PNG, GIF, and WebP content up to 20 MiB. It is not a
-generation request and does not take an idempotency key.
+The client does not pre-reject an image by byte size. It streams JPEG, PNG,
+GIF, or WebP content to the upload endpoint and surfaces that endpoint's size
+decision. The upload is not a generation request and does not take an
+idempotency key.
 
 Submit a billable image or video generation:
 
@@ -136,7 +138,7 @@ exactly.
 
 `POST /v1/uploads/images` uses `multipart/form-data` with one `file` field and
 the same Bearer API key as the other endpoints. It accepts content-detected
-JPEG, PNG, GIF, or WebP bytes up to 20 MiB and returns:
+JPEG, PNG, GIF, or WebP bytes and returns:
 
 ```json
 {
@@ -153,6 +155,11 @@ base64, or data URI to a generation request. The response has no explicit
 expiry timestamp, so use the URL promptly. Uploads are not automatically
 retried because the endpoint has no upload idempotency key; an uncertain retry
 could create a duplicate object.
+
+Do not enforce a separate image byte limit in the MCP tool or local client.
+Submit the upload once and surface the API response, including `413` when the
+upload service rejects the request. Generic client, gateway, and HTTP transport
+limits remain operational concerns rather than APIMart image-size rules.
 
 There are no APIMart audio or video upload endpoints in this workflow. Every
 audio/video media value used by a generation must be a public HTTP(S) URL.
