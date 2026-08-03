@@ -6,7 +6,7 @@
 >
 > MCP 地址：`https://mcp.apimart.asia/mcp`
 >
-> 更新时间：2026-08-01
+> 更新时间：2026-08-03
 
 **重要说明：**本文中的 `dev` 只指 APIMart Skill 的 GitHub `dev` 分支，不代表免费沙箱，也不代表客户端应该自行猜测一个 `mcp-dev` 域名。当前 `dev` Skill 仍连接上面给出的 MCP 地址，调用图片或视频生成工具会产生真实任务并可能计费。若运维以后提供独立测试地址，应统一替换本文中的 MCP URL。
 
@@ -74,6 +74,7 @@ APIMart MCP 当前应提供 7 个工具：
 - 一个可用的 APIMart API Key。
 - 可以访问 `https://mcp.apimart.asia/mcp` 的网络。
 - Node.js 22.20 或更高版本（第三方 `skills@1.5.21` 安装器的要求；Skill 自带脚本本身支持 Node.js 20+）。
+- 已安装并能打开准备接入的客户端，例如 Codex 桌面端或 Codex CLI；Windows 即使暂时没有 `codex` 命令，也可以按第 5.3 节手工配置。
 - 一个支持远程 Streamable HTTP MCP 的 AI 客户端。
 
 检查 Node.js 和 npm：
@@ -90,6 +91,7 @@ npm -v
 - 不要把 API Key 发到聊天、工单、截图或群聊中。
 - 不要把 API Key 写进 Git 仓库、Markdown、JSON 示例或 URL。
 - `--bearer-token-env-var` 后面填写的是环境变量名 `APIMART_API_KEY`，不是以 `sk-` 开头的真实密钥。
+- PowerShell 的 `Read-Host "请输入……"` 中，引号里的内容只是屏幕提示，不能替换成真实 Key；只有出现提示后，才在隐藏输入位置粘贴 Key。
 - 如果密钥曾出现在聊天或截图中，应立即作废并重新生成。
 - 测试建议使用测试 Key，并设置合理额度。
 - **先安装并检查 Skill，再设置 API Key。**`npx` 安装器及其子进程可以读取当前进程的环境变量；不要在带着 Key 的终端里运行不可信安装命令。
@@ -119,11 +121,20 @@ codex mcp add apimart-dev \
 建议一台测试电脑在同一时间只使用一个全局版本。若要从 `main` 切到 `dev`：
 
 1. 备份自己手工改过的已安装 Skill，并退出所有 AI 客户端。
-2. 在 macOS/Linux 终端执行 `unset APIMART_API_KEY`；PowerShell 执行 `Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue`。
-3. 移除该 Skill 对所有客户端的全局链接与共享副本：
+2. 在 macOS/Linux 终端执行 `unset APIMART_API_KEY`。Windows PowerShell 同时清除当前进程和用户级变量：
 
-```bash
-npx --yes skills@1.5.21 remove apimart-generate-media -g --agent '*' -y
+```powershell
+Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $null,
+    [System.EnvironmentVariableTarget]::User
+)
+```
+3. 移除该 Skill 对所有客户端的全局链接与共享副本。Windows 如果 `npx` 只在 CMD 可用，完成上面的 PowerShell 清理后先关闭 PowerShell，再打开 CMD 执行下面这一整行；macOS/Linux 或能使用 `npx` 的 PowerShell 也执行同一行：
+
+```text
+npx --yes skills@1.5.21 remove apimart-generate-media -g --agent "*" -y
 ```
 
 4. 再按后续章节，为你实际使用的每个客户端安装同一个 `dev` 来源。
@@ -334,68 +345,123 @@ codex mcp list
 
 ## 5. Codex 接入（Windows）
 
-### 5.1 先安装 Skill
+下面是面向小白的固定流程。Windows 上按这个顺序操作，不要跳步，也不要把 CMD 与 PowerShell 命令混在同一个窗口。
 
-先在尚未设置 API Key 的 PowerShell 中安装并检查 Skill：
+```text
+CMD 安装 Skill
+  → PowerShell 隐藏输入并保存 Key
+  → 配置远程 HTTP MCP
+  → 完全退出并重新启动 Codex
+  → 新建任务做只读测试
+```
 
-```powershell
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/dev `
-  -g `
-  --agent codex `
-  --skill apimart-generate-media `
-  -y
+先看提示符判断当前终端：
+
+| 终端 | 提示符示例 | 本节用途 |
+| --- | --- | --- |
+| CMD（命令提示符） | `C:\Users\alice>` | 运行 `npx` 单行安装命令 |
+| PowerShell | `PS C:\Users\alice>` | 隐藏输入 Key、编辑和检查配置 |
+
+看到 `C:\...>` 时不要执行以 `$` 开头的 PowerShell 命令。看到 `PS C:\...>` 时，如果 `npm` 或 `npx` 不可用但 CMD 可用，直接回到 CMD 安装 Skill；也可以尝试 `npx.cmd`。本节所有 CMD 命令均为单行，不要自行加入反斜杠、反引号或换行符。
+
+**整节最重要的规则：**`APIMART_API_KEY` 是固定的环境变量名称。除 PowerShell 显示“请输入新的 APIMart 测试 API Key:”后的隐藏输入外，不要在任何命令、提示文字、TOML、聊天或截图中粘贴以 `sk-` 开头的真实 Key。
+
+### 5.1 在 CMD 安装 Skill
+
+此时先不要设置 API Key。如果以前配置过 APIMart Key，先按第 2.3 节在 PowerShell 清除当前进程和用户级变量，再关闭 PowerShell。然后打开 CMD，确认提示符类似 `C:\Users\alice>`，复制并执行下面这一整行：
+
+```cmd
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/dev -g --agent codex --skill apimart-generate-media -y
+```
+
+检查安装结果：
+
+```cmd
 npx --yes skills@1.5.21 list -g --json
 ```
 
-### 5.2 设置当前 PowerShell 的环境变量（推荐）
+结果中应出现 `apimart-generate-media`。如果安装器仍打开 Agent 多选界面，按 `Ctrl+C` 取消，重新复制上面包含 `--agent codex` 的完整单行命令；不要在多选界面里盲目安装到所有客户端。
 
-在 PowerShell 中执行：
+### 5.2 在 PowerShell 减少明文暴露并保存测试 Key
+
+先从 APIMart 测试环境生成一枚有模型权限、额度受控的新 Key。然后打开 PowerShell，确认提示符类似 `PS C:\Users\alice>`，把下面代码块原样执行：
 
 ```powershell
-$secureKey = Read-Host "请输入 APIMart 测试 API Key" -AsSecureString
+Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $null,
+    [System.EnvironmentVariableTarget]::User
+)
+
+$secureKey = Read-Host "请输入新的 APIMart 测试 API Key" -AsSecureString
 $apiKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
-$env:APIMART_API_KEY = $apiKey
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $apiKey,
+    [System.EnvironmentVariableTarget]::User
+)
 Remove-Variable apiKey, secureKey
 ```
 
-然后在**同一个 PowerShell 窗口**中运行 Codex CLI。测试完成后执行：
-
-```powershell
-Remove-Item Env:APIMART_API_KEY
-```
-
-如果 Windows 桌面端必须读取变量，可以重新隐藏输入并持久化到用户环境：
-
-```powershell
-$secureKey = Read-Host "请输入 APIMart 测试 API Key" -AsSecureString
-$apiKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
-[Environment]::SetEnvironmentVariable("APIMART_API_KEY", $apiKey, "User")
-Remove-Variable apiKey, secureKey
-```
-
-这会把 Key 持久化到当前用户环境中，并不是安全凭据库。完成测试后应运行下面的清理命令并重启客户端；生产使用建议由 Windows 凭据管理或企业密钥工具注入。
-
-```powershell
-[Environment]::SetEnvironmentVariable("APIMART_API_KEY", $null, "User")
-```
-
-### 5.3 添加 MCP
-
-如果 `codex` 命令可用：
-
-```powershell
-codex mcp add apimart-dev `
-  --url https://mcp.apimart.asia/mcp `
-  --bearer-token-env-var APIMART_API_KEY
-```
-
-如果 CLI 不可用，可以编辑：
+执行到 `Read-Host` 那一行后，PowerShell 会显示：
 
 ```text
-%USERPROFILE%\.codex\config.toml
+请输入新的 APIMart 测试 API Key:
 ```
 
-加入：
+此时才粘贴真实 Key 并按 Enter。屏幕不会显示字符，这是正常现象。第一行引号里的中文只是提示文字，**不要把它替换成真实 Key**。
+
+检查是否写入成功；下面的命令只检查格式，不会打印 Key，也不能证明该 Key 已获得模型权限：
+
+```powershell
+$key = [Environment]::GetEnvironmentVariable(
+    "APIMART_API_KEY",
+    [System.EnvironmentVariableTarget]::User
+)
+
+if ($key -and $key.StartsWith("sk-")) {
+    "Key 已正确写入"
+} else {
+    "Key 未正确写入"
+}
+
+Remove-Variable key
+```
+
+设置后不要执行 `Remove-Item Env:APIMART_API_KEY`，也不要立即清除用户变量。用户级变量不是专业密钥保险箱，但能让之后重新启动的 Codex 读取测试 Key。测试结束后再用下面命令清除：
+
+```powershell
+Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $null,
+    [System.EnvironmentVariableTarget]::User
+)
+```
+
+如果真实 Key 曾出现在命令、终端历史、聊天或截图中，仅清除本机变量是不够的；必须在 APIMart 平台作废该 Key 并重新生成。
+
+### 5.3 配置远程 HTTP MCP
+
+#### 方式 A：`codex` 命令可用
+
+下面是一整行，`APIMART_API_KEY` 必须原样保留，不能替换成真实 Key：
+
+```cmd
+codex mcp add apimart-dev --url https://mcp.apimart.asia/mcp --bearer-token-env-var APIMART_API_KEY
+```
+
+#### 方式 B：`codex` 命令不可用（直接编辑配置）
+
+不要在 Codex 的“本地命令”表单里创建一个空的 `command`。APIMart 是远程 Streamable HTTP MCP，需要配置 `url`。在 PowerShell 原样执行：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex" | Out-Null
+notepad "$env:USERPROFILE\.codex\config.toml"
+```
+
+如果记事本询问是否创建文件，选择“是”。如果文件中已经存在 `[mcp_servers.apimart-dev]`，先删除这个标题及其下面的旧配置行，直到下一个以 `[` 开头的配置段为止。然后在文件末尾加入且只保留一份：
 
 ```toml
 [mcp_servers.apimart-dev]
@@ -403,7 +469,71 @@ url = "https://mcp.apimart.asia/mcp"
 bearer_token_env_var = "APIMART_API_KEY"
 ```
 
-保存并重启 Codex，然后用新任务完成第 3.4 节的只读测试。
+保存时文件名必须是 `config.toml`，不能变成 `config.toml.txt`。使用上面的 `notepad` 命令打开文件，可以避免手工找错目录；若记事本弹出“另存为”，把“保存类型”改为“所有文件”。
+
+下面两种写法都是错误的：
+
+```toml
+# 错误：把远程 HTTP MCP 写成空的本地启动命令
+command = ""
+
+# 错误：把真实 Key 当作环境变量名称
+bearer_token_env_var = "sk-xxxx"
+```
+
+保存并关闭记事本，再做脱敏检查。下面只输出 5 个判断结果，不会打印配置文件内容：
+
+```powershell
+$configPath = "$env:USERPROFILE\.codex\config.toml"
+$configText = Get-Content -Raw $configPath
+
+[pscustomobject]@{
+    has_apimart_section = $configText -match '(?m)^\[mcp_servers\.apimart-dev\]\s*$'
+    has_mcp_url = $configText -match 'https://mcp\.apimart\.asia/mcp'
+    has_env_name = $configText -match 'bearer_token_env_var\s*=\s*"APIMART_API_KEY"'
+    has_empty_command = $configText -match '(?m)^\s*command\s*=\s*""\s*$'
+    contains_literal_key = $configText -match 'sk-[A-Za-z0-9_-]{8,}'
+}
+
+Remove-Variable configPath, configText
+```
+
+前三项应为 `True`，后两项应为 `False`。如果 `contains_literal_key` 为 `True`，不要打印或分享配置内容；立即在 APIMart 平台作废误写的 Key，并在本机把配置改回上面的正确内容。
+
+### 5.4 完全重启 Codex
+
+1. 退出所有 Codex 桌面端、CLI 和 IDE 窗口，不能只关闭当前任务。
+2. 关闭安装或设置变量时打开的终端。
+3. 重新打开 CMD 或 PowerShell；需要 CLI 时，再从这个新终端运行 `codex`。
+4. 重新打开 Codex，并新建一个任务。旧任务不会动态加载刚添加的 MCP。
+
+若仍提示没有环境变量，先回到第 5.2 节检查用户级变量，再确认第 5.3 节保存的是环境变量名 `APIMART_API_KEY`。
+
+### 5.5 做只读验收
+
+在 Codex CLI 中可以先输入：
+
+```text
+/mcp
+```
+
+确认 `apimart-dev` 已启动。然后在新任务中输入：
+
+```text
+使用 apimart-dev MCP 的 list_models，列出 5 个模型，不要生成内容。
+```
+
+正常结果应调用 `apimart-dev.list_models` 并返回至少一个模型。常见结果按下面判断：
+
+| 现象 | 含义与处理 |
+| --- | --- |
+| `Environment variable sk-... is not set` | 把真实 Key 错写进了 `bearer_token_env_var`。立即作废暴露的 Key，并按第 5.3 节改成 `APIMART_API_KEY`。 |
+| `command` 为空或启动命令无效 | 把远程 MCP 配成了本地 stdio MCP。删除 `command = ""`，改用第 5.3 节的 `url` 配置。 |
+| `401` 或 `403` | Key 无效、被禁用、环境不匹配或权限不足。重新生成目标测试环境的 Key。 |
+| `total: 0`、`models: []` | MCP 已经连通，但 APIMart 测试 API 对当前 Key 返回空模型列表。检查该 Key 所属测试账号或分组是否配置了可用模型；这不是 Skill 安装失败。 |
+| 返回模型但工具少于 7 个 | MCP 服务版本或客户端缓存仍旧，按第 11.5 节排查。 |
+
+“Key 已正确写入”只说明字符串格式看起来像 Key，不代表它属于正确环境或拥有模型权限。不要把真实 Key 发给 AI 代为检查。
 
 ## 6. Cursor 接入
 
@@ -421,7 +551,7 @@ npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/de
 
 - macOS 桌面版 Cursor：使用第 3.2 节的 `launchctl` 隐藏输入命令，随后完全退出并重开 Cursor。
 - macOS/Linux 从终端启动 Cursor：使用第 4 节与你的 shell 对应的命令，并从同一终端启动 Cursor。
-- Windows 从 PowerShell 启动 Cursor：使用第 5.2 节的当前进程变量命令，并从同一 PowerShell 启动 Cursor。独立启动桌面端时才使用该节说明的用户级变量，并在测试后清除。
+- Windows：按第 5.2 节设置用户级变量，完全退出并重新打开 Cursor；无需从保存 Key 的 PowerShell 窗口启动。测试结束后按该节说明同时清除当前进程和用户级变量。
 
 ### 6.3 配置 MCP
 
@@ -503,7 +633,7 @@ npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/de
 
 ### 7.2 设置环境变量
 
-在启动 Claude Code 的同一终端中设置。zsh 与 bash 请使用第 4 节各自对应的隐藏输入命令；PowerShell 请使用第 5.2 节的当前进程变量命令。必须先 `unset`/清除旧变量，读取成功后再启动 Claude Code，避免误用另一个账号残留的 Key。
+在启动 Claude Code 的同一终端中设置。zsh 与 bash 请使用第 4 节各自对应的隐藏输入命令。Windows 按第 5.2 节写入用户级变量后，关闭旧终端并重新打开 PowerShell，再从新窗口启动 Claude Code。必须先清除旧变量、确认新 Key 写入成功后再启动，避免误用另一个账号残留的 Key。
 
 ### 7.3 添加远程 MCP
 
@@ -595,7 +725,7 @@ Content-Type: application/json
 Accept: application/json, text/event-stream
 ```
 
-请把 Key 放在 Apipost 的环境变量或密钥管理中，不要保存进公开的接口文档。响应也可能以 `text/event-stream` 返回；若界面显示 SSE 事件，请读取其中 `data:` 后面的 JSON-RPC 内容。
+请把 Key 放在 Apipost 的私密环境变量或 Secret 类型变量中，再让请求头引用该变量；不要直接把 Key 粘贴进请求头示例或保存进公开接口文档。分享或导出 Apipost 项目前，确认环境值与 `Authorization` 请求头已被排除或遮盖。响应也可能以 `text/event-stream` 返回；若界面显示 SSE 事件，请读取其中 `data:` 后面的 JSON-RPC 内容。
 
 ### 9.2 查看 7 个工具
 
@@ -672,7 +802,7 @@ Accept: application/json, text/event-stream
 - Skill 能被客户端识别。
 - MCP 显示已连接。
 - `tools/list` 有 7 个工具。
-- `list_models` 能返回模型。
+- `list_models` 返回至少 1 个模型；`total: 0` 或 `models: []` 视为未通过，不继续做计费测试。
 - `get_model_docs` 能返回指定模型的 Markdown。
 - `get_model_schema` 能识别正确的 `image_generation` 或 `video_generation`。
 
@@ -811,6 +941,8 @@ macOS Codex 桌面端可尝试：
 
 如果这个路径也不存在，请在 Codex 设置中使用 MCP Servers 页面配置，或确认应用安装位置。
 
+Windows 不需要先解决 `codex` 命令才能接入：直接按第 5.3 节“方式 B”编辑 `%USERPROFILE%\.codex\config.toml`。APIMart 是远程 HTTP MCP，配置中必须有 `url`，不能创建空的 `command = ""`。
+
 ### 11.2 `rg: command not found`
 
 `rg` 是 ripgrep，不是 macOS 默认命令。改用：
@@ -822,8 +954,9 @@ grep -nF "get_model_docs" ~/.agents/skills/apimart-generate-media/SKILL.md
 ### 11.3 已添加 MCP，但提示没有 `APIMART_API_KEY`
 
 - 确认 `--bearer-token-env-var` 后写的是 `APIMART_API_KEY`。
+- 如果错误中出现 `Environment variable sk-... is not set`，说明真实 Key 被误写成了环境变量名。立即作废该 Key，把配置改回 `APIMART_API_KEY`。
 - 重新设置环境变量。
-- 完全退出并重新启动客户端。
+- Windows 用户级环境变量只会被之后启动的进程继承；完全退出所有 Codex 窗口和旧终端，再打开新终端和新任务。
 - 不要把真实 Key 发到聊天里让 AI 检查。
 
 ### 11.4 返回 401 或 403
@@ -848,10 +981,20 @@ unset APIMART_API_KEY
 npx --yes skills@1.5.21 update apimart-generate-media -g -y
 ```
 
-PowerShell：
+Windows 请先在 PowerShell 清除当前进程和用户级变量：
 
 ```powershell
 Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $null,
+    [System.EnvironmentVariableTarget]::User
+)
+```
+
+再回到 CMD 执行更新；若 `npx` 在 PowerShell 也可用，执行同一行也可以：
+
+```cmd
 npx --yes skills@1.5.21 update apimart-generate-media -g -y
 ```
 
@@ -912,6 +1055,24 @@ get_model_schema 只用于确认操作和传输契约。
 - 不要通过改扩展名绕过限制；服务会按真实文件内容识别 MIME 类型。
 - 不要改用音频或视频上传尝试绕过，当前只开放图片上传。
 
+### 11.13 Windows 下 CMD 与 PowerShell 命令互相报错
+
+- 提示符是 `C:\Users\alice>` 时是 CMD，不能执行 `$key = ...`、`Remove-Item` 或其他 PowerShell 语法。
+- 提示符是 `PS C:\Users\alice>` 时是 PowerShell。若这里找不到 `npm`/`npx`，但 CMD 可以使用，就在 CMD 运行 Skill 安装命令，在 PowerShell 只完成第 5.2、5.3 节的 Key 和配置步骤。
+- `finally` 不能在上一段 `try/catch` 已执行完成后单独粘贴。清理普通临时变量可直接执行 `Remove-Variable key, headers, result -ErrorAction SilentlyContinue`；不要在接入尚未验收时清除用户级 `APIMART_API_KEY`。
+
+### 11.14 `list_models` 返回 `total: 0` 或 `models: []`
+
+这表示 MCP 调用已经到达 APIMart，并收到了一个有效但为空的模型列表；它不表示 Skill 安装失败，也不等同于“7 个 MCP 工具可见”。依次检查：
+
+1. Key 是否来自本教程要求的目标测试环境，而不是另一套环境。
+2. Key 所属账号、分组或渠道是否配置了至少一个可用模型。
+3. 让 APIMart 管理员确认该 MCP 部署实际配置的 API 上游，并在**同一个上游**检查该 Key 的 `/v1/models?limit=5` 结果。不要根据 `dev` 这个 Skill 分支名自行猜测 `api-dev` 域名；MCP URL 与后端 API URL 是两层不同地址。
+
+若管理员确认的同一上游也返回空列表，把 HTTP 状态、`total`、`count` 等脱敏字段交给管理员检查账号/分组配置。若同一上游直连有模型而 MCP 仍为空，则由管理员检查 MCP 的上游配置和路由。普通接入用户无需在命令中自己拼 `Authorization` 请求头；这样更容易把 Key 留在历史或截图中。
+
+空列表时只读验收未通过，不要继续调用图片或视频生成。排查时只提供 HTTP 状态、`total`、`count` 和空数组等脱敏结果，不要提供 `Authorization` 请求头或真实 Key。
+
 ## 12. 从 dev 切回正式 main
 
 `dev` 用于测试，不建议长期提供给普通用户。正式发布前，应先把已验收内容合并进 `main`；若团队发布了不可变 release tag，正式用户优先安装 tag。下面至少显式指定 `/tree/main`，不依赖仓库默认分支。
@@ -928,24 +1089,36 @@ PowerShell：
 
 ```powershell
 Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
+[Environment]::SetEnvironmentVariable(
+    "APIMART_API_KEY",
+    $null,
+    [System.EnvironmentVariableTarget]::User
+)
 ```
 
-然后移除该 Skill 的共享全局安装；下面是一行命令，bash、zsh 和 PowerShell 都可以执行：
+然后移除该 Skill 的共享全局安装。Windows 如果 `npx` 只在 CMD 可用，完成上面的 PowerShell 清理后关闭 PowerShell，再打开 CMD。下面是一整行，在能使用 `npx` 的终端中执行：
 
 ```text
-npx --yes skills@1.5.21 remove apimart-generate-media -g --agent '*' -y
+npx --yes skills@1.5.21 remove apimart-generate-media -g --agent "*" -y
 ```
 
-再为实际使用的每个客户端安装同一个 `main` 来源。以下也都是一行命令，只执行你需要的客户端：
+再为实际使用的每个客户端安装同一个 `main` 来源。以下每个代码块都只有一行，只复制实际需要的客户端命令，不要把多个代码块一起粘贴。
+
+Codex：
 
 ```text
-# Codex
 npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent codex --skill apimart-generate-media -y
+```
 
-# Cursor
+Cursor：
+
+```text
 npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent cursor --skill apimart-generate-media -y
+```
 
-# Claude Code
+Claude Code：
+
+```text
 npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent claude-code --skill apimart-generate-media -y
 ```
 
@@ -970,6 +1143,8 @@ codex mcp remove apimart-dev
 codex mcp add apimart --url https://mcp.apimart.asia/mcp --bearer-token-env-var APIMART_API_KEY
 ```
 
+Windows 上 `codex` 命令不可用时，用第 5.3 节“方式 B”打开 `%USERPROFILE%\.codex\config.toml`，删除 `[mcp_servers.apimart-dev]` 标题及其 `url`、`bearer_token_env_var` 配置行。若该段后面还有别的 `[mcp_servers...]` 或其他配置段，不要删除它们。保存后完全重启 Codex；需要正式配置时，再以 `[mcp_servers.apimart]` 为标题加入同样的 URL 和环境变量名。
+
 Cursor 可把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`；Claude Code 可以删除本地测试条目后，以 `apimart` 为名称重新执行第 7.3 节的 `add-json` 命令。改名不会改变 URL，也不会改变计费规则。
 
 ## 13. 安全检查清单
@@ -977,10 +1152,13 @@ Cursor 可把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`；Claude
 接入完成后逐项确认：
 
 - [ ] API Key 没有出现在聊天、截图、文档或 Git 提交中。
+- [ ] PowerShell 的 `Read-Host` 提示文字未被替换成真实 Key，真实 Key 只在隐藏提示后输入。
 - [ ] MCP 配置保存的是环境变量名，而不是裸 Key。
+- [ ] Codex 的远程 MCP 配置包含 `url` 和 `bearer_token_env_var`，没有空的 `command = ""`。
 - [ ] 测试使用低额度测试 Key。
 - [ ] MCP URL 使用 HTTPS。
 - [ ] 线上工具数量为 7。
+- [ ] `list_models` 返回至少 1 个模型；没有把 7 个工具可见误当成模型权限已通过。
 - [ ] 每次生成前读取该模型的实时文档。
 - [ ] `upload_image` 能上传允许格式的参考图片，错误格式和超大图片会被拒绝。
 - [ ] 音频和视频只使用公开 HTTP(S) URL，没有上传本地文件、base64 或 data URI。
@@ -993,6 +1171,7 @@ Cursor 可把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`；Claude
 
 - [OpenAI Codex：Model Context Protocol](https://learn.chatgpt.com/docs/extend/mcp)
 - [OpenAI Codex：Build skills](https://learn.chatgpt.com/docs/build-skills)
+- [OpenAI Codex：Configuration Reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 - [Cursor：Model Context Protocol](https://cursor.com/docs/mcp)
 - [Cursor：Agent Skills](https://cursor.com/docs/skills)
 - [Anthropic Claude Code：MCP](https://code.claude.com/docs/en/mcp)
