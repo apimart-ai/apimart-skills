@@ -1,14 +1,14 @@
-# APIMart MCP + Skill `main` 正式版接入教程
+# APIMart MCP + Skill 正式版接入教程
 
 > 适用对象：第一次接触 MCP、Skill 或 AI 编程助手的 APIMart 正式用户。
 >
-> Skill 来源：`apimart-ai/apimart-skills` 的 `main` 分支。
+> Skill 来源：`https://github.com/apimart-ai/apimart-skills`
 >
 > 生产 MCP 地址：`https://mcp.apimart.ai/mcp`
 >
 > 更新时间：2026-08-05
 
-**不要混用环境：**生产 Skill、生产 MCP 地址和用户在 APIMart 正式平台生成的 API Key 必须配套使用。测试环境仍使用 `dev` Skill 与 `https://mcp.apimart.asia/mcp`，不要把测试地址复制到本教程的生产配置中。
+**重要：**请按本文给出的 Skill 来源、MCP 地址和环境变量名称原样配置，不要自行替换服务地址，也不要把真实 API Key 写入命令或配置文件。
 
 ## 目录
 
@@ -22,7 +22,7 @@
 8. [其他 MCP 客户端接入原则](#8-其他-mcp-客户端接入原则)
 9. [使用 Apipost 独立检查 MCP](#9-使用-apipost-独立检查-mcp)
 10. [正式环境验收流程](#10-正式环境验收流程)
-11. [更新、卸载与从 dev 切换到 main](#11-更新卸载与从-dev-切换到-main)
+11. [更新、卸载与重新安装](#11-更新卸载与重新安装)
 12. [常见问题](#12-常见问题)
 13. [安全检查清单](#13-安全检查清单)
 
@@ -41,7 +41,7 @@
 
 | 配置项 | 正式环境值 |
 | --- | --- |
-| Skill 分支 | `main` |
+| Skill 来源 | `https://github.com/apimart-ai/apimart-skills` |
 | MCP 名称 | `apimart` |
 | MCP URL | `https://mcp.apimart.ai/mcp` |
 | 认证方式 | 用户自己的 APIMart API Key，通过 Bearer Token 透传 |
@@ -120,11 +120,9 @@ codex mcp add apimart \
 --bearer-token-env-var APIMART_API_KEY
 ```
 
-### 2.3 已安装 dev 版本时先切换
+### 2.3 已安装旧版本时先清理
 
-同一台电脑上的全局 Skill 通常共享 `~/.agents/skills/`，不同 AI 客户端可能读取同一份副本。因此不要长期让一部分客户端使用 `dev`、另一部分使用 `main`。
-
-如果之前安装过 `dev`，先退出所有 AI 客户端并清除当前环境中的 Key。macOS/Linux：
+同一台电脑上的多个 AI 客户端通常共享 `~/.agents/skills/` 中的 Skill。为了避免继续读取旧内容，重新安装前先退出所有 AI 客户端并清除当前环境中的 Key。macOS/Linux：
 
 ```bash
 unset APIMART_API_KEY
@@ -149,19 +147,19 @@ npx --yes skills@1.5.21 remove apimart-generate-media -g --agent "*" -y
 
 Windows 如果只有 CMD 能使用 `npx`，就在 PowerShell 清除 Key 后关闭 PowerShell，再打开 CMD 执行上面这一整行。
 
-卸载 Skill 不会自动删除旧 MCP。若 `codex mcp list` 中存在 `apimart-dev`，请执行 `codex mcp remove apimart-dev`；若旧测试配置也叫 `apimart`，但 URL 是 `https://mcp.apimart.asia/mcp`，请先执行 `codex mcp remove apimart`。Windows 没有 `codex` 命令时，按第 5.3 节方式 B 打开配置文件，删除指向 `.asia` 测试地址的旧配置段。
+卸载 Skill 不会自动删除旧 MCP。执行 `codex mcp list`，如果已经存在名为 `apimart` 的配置但 URL 不是本文给出的正式地址，请先执行 `codex mcp remove apimart`。如果旧配置使用了其他名称，也应删除对应条目。Windows 没有 `codex` 命令时，按第 5.3 节方式 B 打开配置文件，只删除旧的 APIMart MCP 配置段。
 
 ## 3. Codex 桌面端接入（macOS，推荐）
 
 Codex 桌面端、Codex CLI 和 Codex IDE 扩展在同一台 Codex 主机上通常共享 MCP 配置，配置一次即可。
 
-### 3.1 安装 `main` 正式版 Skill
+### 3.1 安装正式版 Skill
 
 先确保当前终端没有 `APIMART_API_KEY`，然后执行：
 
 ```bash
 unset APIMART_API_KEY
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main \
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills \
   -g \
   --agent codex \
   --skill apimart-generate-media \
@@ -287,7 +285,7 @@ bearer_token_env_var = "APIMART_API_KEY"
 
 ```bash
 unset APIMART_API_KEY
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main \
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills \
   -g \
   --agent codex \
   --skill apimart-generate-media \
@@ -360,7 +358,7 @@ CMD 安装 Skill
 打开 CMD，复制下面完整的一行：
 
 ```cmd
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent codex --skill apimart-generate-media -y
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills -g --agent codex --skill apimart-generate-media -y
 ```
 
 检查安装结果：
@@ -371,15 +369,16 @@ npx --yes skills@1.5.21 list -g --json
 
 结果中应出现 `apimart-generate-media`。如果出现 Agent 多选界面，按 `Ctrl+C` 取消，再重新复制包含 `--agent codex` 的完整命令。
 
-安装后先在 PowerShell 核对该 Skill 的来源分支：
+安装后在 PowerShell 核对该 Skill 的来源仓库：
 
 ```powershell
 $lock = Get-Content -Raw "$HOME\.agents\.skill-lock.json" | ConvertFrom-Json
-$lock.skills.'apimart-generate-media'.ref
-Remove-Variable lock
+$entry = $lock.skills.'apimart-generate-media'
+$entry.source
+Remove-Variable lock, entry
 ```
 
-结果必须是 `main`；如果显示 `dev`，先按第 2.3 节移除共享安装，再重新执行本节的 `tree/main` 安装命令。
+结果应为 `apimart-ai/apimart-skills`。如果来源不同，先按第 2.3 节移除旧安装，再重新执行本节命令。
 
 ### 5.2 在 PowerShell 隐藏输入并保存 Key
 
@@ -473,7 +472,6 @@ $apimartBlock = $sectionMatch.Value
 [pscustomobject]@{
     has_apimart_section = $sectionMatch.Success
     has_mcp_url = $apimartBlock -match 'https://mcp\.apimart\.ai/mcp'
-    has_test_url = $configText -match 'https://mcp\.apimart\.asia/mcp'
     has_env_name = $apimartBlock -match 'bearer_token_env_var\s*=\s*"APIMART_API_KEY"'
     has_empty_command = $apimartBlock -match '(?m)^\s*command\s*=\s*""\s*$'
     contains_literal_key = $configText -match 'sk-[A-Za-z0-9_-]{8,}'
@@ -482,7 +480,7 @@ $apimartBlock = $sectionMatch.Value
 Remove-Variable configPath, configText, sectionMatch, apimartBlock
 ```
 
-`has_apimart_section`、`has_mcp_url`、`has_env_name` 应为 `True`；`has_test_url`、`has_empty_command`、`contains_literal_key` 应为 `False`。如果 `contains_literal_key` 为 `True`，不要展示配置内容，应立即作废误写的 Key 并修正配置。
+`has_apimart_section`、`has_mcp_url`、`has_env_name` 应为 `True`；`has_empty_command`、`contains_literal_key` 应为 `False`。如果 `contains_literal_key` 为 `True`，不要展示配置内容，应立即作废误写的 Key 并修正配置。
 
 ### 5.4 完全重启并验收
 
@@ -527,13 +525,13 @@ Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
 
 ```bash
 unset APIMART_API_KEY
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent cursor --skill apimart-generate-media -y
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills -g --agent cursor --skill apimart-generate-media -y
 ```
 
 Windows 如果只有 CMD 能使用 `npx`，执行下面这一整行：
 
 ```cmd
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent cursor --skill apimart-generate-media -y
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills -g --agent cursor --skill apimart-generate-media -y
 ```
 
 ### 6.2 设置 API Key
@@ -594,7 +592,7 @@ agent mcp list-tools apimart
 
 ```bash
 unset APIMART_API_KEY
-npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills/tree/main -g --agent claude-code --skill apimart-generate-media -y
+npx --yes skills@1.5.21 add https://github.com/apimart-ai/apimart-skills -g --agent claude-code --skill apimart-generate-media -y
 ```
 
 Windows CMD 使用同一条单行命令，但不要执行开头的 `unset`。
@@ -771,7 +769,7 @@ Accept: application/json, text/event-stream
 
 - 只上传一次，不调用生成工具。
 - 返回的 HTTP(S) URL 可以访问。
-- 不会把用户电脑上的本地路径直接传给远程 Pod。
+- 不会把用户电脑上的本地路径直接传给 APIMart 服务。
 - Skill/MCP 不自行设置图片大小业务限制，最终以上传接口响应为准。
 - URL 有效期为 72 小时。
 
@@ -809,7 +807,7 @@ Accept: application/json, text/event-stream
 
 生成完成后应返回媒体 URL；链接有效期为 72 小时，请及时下载保存。
 
-## 11. 更新、卸载与从 dev 切换到 main
+## 11. 更新、卸载与重新安装
 
 ### 11.1 更新正式 Skill
 
@@ -826,7 +824,7 @@ Windows 先在 PowerShell 清除当前进程和用户级变量，再到 CMD 执�
 npx --yes skills@1.5.21 update apimart-generate-media -g -y
 ```
 
-更新后检查锁文件中的来源分支。macOS/Linux：
+更新后检查锁文件中的来源仓库。macOS/Linux：
 
 ```bash
 grep -A 8 '"apimart-generate-media"' ~/.agents/.skill-lock.json
@@ -836,11 +834,12 @@ Windows PowerShell：
 
 ```powershell
 $lock = Get-Content -Raw "$HOME\.agents\.skill-lock.json" | ConvertFrom-Json
-$lock.skills.'apimart-generate-media'.ref
-Remove-Variable lock
+$entry = $lock.skills.'apimart-generate-media'
+$entry.source
+Remove-Variable lock, entry
 ```
 
-正式安装应显示 `"ref": "main"`。重新设置 Key 并重启客户端后，执行第 10.1 节只读验收。
+来源应为 `apimart-ai/apimart-skills`。重新设置 Key 并重启客户端后，执行第 10.1 节只读验收。
 
 ### 11.2 卸载 Skill
 
@@ -881,16 +880,15 @@ Remove-Item Env:APIMART_API_KEY -ErrorAction SilentlyContinue
 )
 ```
 
-### 11.4 从 dev 切换到 main
+### 11.4 完整重新安装
 
-1. 按第 2.3 节卸载共享的 dev Skill。
-2. 按对应客户端章节安装 `tree/main`。
-3. 删除 MCP 配置 `apimart-dev`；如果旧测试配置名称也是 `apimart`，应根据 `.asia` URL 判断并删除。
-4. 新增 `apimart`，URL 必须是 `https://mcp.apimart.ai/mcp`。
-5. 使用 APIMart 正式平台生成的 Key。
-6. 完全重启客户端并重新做只读验收。
-
-不能只把 MCP 显示名称从 `apimart-dev` 改为 `apimart`；真正决定环境的是 URL 和 Key。
+1. 退出所有 AI 客户端并清除当前环境中的 Key。
+2. 按第 11.2 节卸载 Skill。
+3. 删除旧的 APIMart MCP 配置。
+4. 按对应客户端章节重新安装 Skill。
+5. 添加名为 `apimart` 的 MCP，URL 使用 `https://mcp.apimart.ai/mcp`。
+6. 重新设置用户自己的 APIMart API Key。
+7. 完全重启客户端并执行第 10.1 节只读验收。
 
 ## 12. 常见问题
 
@@ -914,7 +912,7 @@ Windows 直接按第 5.3 节方式 B 编辑 `%USERPROFILE%\.codex\config.toml`�
 ### 12.3 返回 401 或 403
 
 - Key 不存在、已过期、被禁用或权限不足。
-- 确认 Key 来自 APIMart 正式平台，而不是测试环境。
+- 确认 Key 来自 APIMart 控制台，并拥有所需模型权限。
 - 更新 Key 后必须重启客户端，让新进程重新读取环境变量。
 
 ### 12.4 返回 `total: 0` 或 `models: []`
@@ -926,7 +924,7 @@ Windows 直接按第 5.3 节方式 B 编辑 `%USERPROFILE%\.codex\config.toml`�
 - 客户端可能仍缓存旧工具列表。
 - 完全重启客户端并新建任务。
 - 确认 URL 为 `https://mcp.apimart.ai/mcp`。
-- 仍异常时让管理员确认生产 MCP Pod 与镜像版本。
+- 仍异常时联系 APIMart 支持检查服务版本。
 
 ### 12.6 模型参数看起来比文档多
 
@@ -939,12 +937,12 @@ get_model_schema 只用于确认操作和传输契约。
 
 ### 12.7 文档返回 `stale: true`
 
-表示上游文档刷新失败，服务返回了最近一次成功副本。通常仍可使用；如果正在验证刚更新的参数，应等待刷新恢复或让管理员检查模型管理中的开发文档链接。
+表示模型文档刷新失败，服务返回了最近一次成功副本。通常仍可使用；如果正在验证刚更新的参数，应等待刷新恢复或联系 APIMart 支持。
 
 ### 12.8 图片上传返回 413
 
 - 如果由 APIMart 上传接口返回，原样反馈，不要自动重试或改扩展名绕过。
-- 如果在调用工具前就被客户端、Ingress 或 HTTP 解析器拒绝，这是传输层限制。
+- 如果在调用工具前就被拒绝，可能触发了客户端或服务的请求大小限制。
 - 对本地可读图片可使用 Skill 的 `upload-image --file` 直连上传接口。
 - 当前没有音频或视频上传接口，不能通过其他格式绕过。
 
@@ -973,7 +971,7 @@ get_model_schema 只用于确认操作和传输契约。
 
 接入完成后逐项确认：
 
-- [ ] 安装的是 `apimart-skills/tree/main`，锁文件中的 `ref` 为 `main`。
+- [ ] Skill 来源是 `apimart-ai/apimart-skills`，没有安装未知来源的同名 Skill。
 - [ ] MCP 名称为 `apimart`，URL 为 `https://mcp.apimart.ai/mcp`。
 - [ ] API Key 来自 APIMart 正式平台，且独立、限额、可撤销。
 - [ ] API Key 没有出现在聊天、截图、文档、配置文件或 Git 提交中。
