@@ -30,9 +30,8 @@ Authorization: Bearer <APIMart API key>
 Accept: application/json
 ```
 
-Never set `APIMART_BASE_URL` to the MCP URL. For the test API, use the API
-origin supplied by APIMart operations, for example
-`https://api-dev.apimart.asia`.
+`APIMART_BASE_URL` must be an APIMart API origin. Keep the default for normal
+production use; change it only when APIMart supplies another API origin.
 
 ## Local Client Commands
 
@@ -157,10 +156,10 @@ for 72 hours after creation; use it or download it before it expires. Uploads
 are not automatically retried because the endpoint has no upload idempotency
 key; an uncertain retry could create a duplicate object.
 
-Do not enforce a separate image byte limit in the MCP tool or local client.
-Submit the upload once and surface the API response, including `413` when the
-upload service rejects the request. Generic client, gateway, and HTTP transport
-limits remain operational concerns rather than APIMart image-size rules.
+Do not enforce a separate image byte limit in the local client. Submit the
+upload once and surface the API response, including `413` when the upload
+service rejects the request. Generic client, gateway, and HTTP transport limits
+remain operational concerns rather than APIMart image-size rules.
 
 There are no APIMart audio or video upload endpoints in this workflow. Every
 audio/video media value used by a generation must be a public HTTP(S) URL.

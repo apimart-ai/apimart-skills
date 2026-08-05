@@ -1,72 +1,42 @@
 ---
 name: apimart-generate-media
-description: Discover APIMart image and video models, read each model's live Markdown documentation and compatibility schema, upload local reference images, submit text-to-image, text-to-video, or image-to-video generations, and check asynchronous tasks through configured APIMart MCP tools or the bundled local API client. Use when a user wants to find an APIMart media model, learn its exact supported parameters, upload an image for generation, generate or edit images or videos, or resume an APIMart generation task.
+description: Discover APIMart image and video models, read each model's live Markdown documentation and compatibility schema, upload local reference images, submit text-to-image, text-to-video, or image-to-video generations, and check asynchronous tasks through the bundled local APIMart API client. Use when a user wants to find an APIMart media model, learn its exact supported parameters, upload an image for generation, generate or edit images or videos, or resume an APIMart generation task.
 ---
 
 # Generate Media with APIMart
 
-Keep every request documentation-driven and use the compatibility schema only
-to confirm the operation and transport contract. Use the APIMart MCP tools when
-they are already configured; otherwise use the bundled zero-dependency local
-client.
-
-## Choose One Execution Mode
-
-Use MCP mode when all seven tools are available:
-
-- `list_models`
-- `get_model_docs`
-- `get_model_schema`
-- `upload_image`
-- `generate_image`
-- `generate_video`
-- `get_task`
-
-Read [references/tool-contracts.md](references/tool-contracts.md) when exact MCP
-arguments, result fields, or recovery behavior are needed.
-
-Otherwise use local mode:
+Use the bundled zero-dependency local client for every APIMart operation:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs <command> [options]
 ```
 
-Require Node.js 20 or newer. Read the user's key from `APIMART_API_KEY`, with
-`API_KEY` only as a legacy fallback. Read the API origin from
-`APIMART_BASE_URL`, defaulting to `https://api.apimart.ai`.
+Do not discover or call external tool servers for this skill. Require Node.js
+20 or newer. Read the user's credential from `APIMART_API_KEY`, with `API_KEY`
+only as a legacy fallback. Read the API origin from `APIMART_BASE_URL`,
+defaulting to `https://api.apimart.ai`.
 
-If the key is not configured, ask the user to configure it in their local
-environment. Never ask them to paste it into chat. Never place a key in a
+If the credential is not configured, ask the user to configure it in their
+local environment. Never ask them to paste it into chat. Never place it in a
 command argument, request/input file, URL, repository, generated artifact, or
-response. Here, “key” means an API credential, not the non-secret idempotency
-key used for safe retries. `APIMART_BASE_URL` is the APIMart API origin, not
-an MCP endpoint; the configured MCP URL independently selects production or
-staging.
+response. Here, “credential” does not mean the non-secret idempotency key used
+for safe retries.
 
 Read [references/api-contract.md](references/api-contract.md) when exact local
 commands, API fields, or errors are needed.
 
-Choose one mode for a logical generation. Do not submit through one mode and
-silently retry through the other. Read-only diagnosis may inspect the other
-mode, but it must never turn into a second billable submission.
-
-Image upload is the one non-billable transport exception. For a locally
-readable image, prefer the bundled local `upload-image` command even when the
-generation itself uses MCP: it streams multipart data directly to APIMart and
-lets `/v1/uploads/images` decide whether the file is accepted. This is not a
-second generation submission.
-
 ## Command Mapping
 
-| Action | MCP mode | Local mode |
-| --- | --- | --- |
-| List models | `list_models` | `models` |
-| Read exact model parameters and values | `get_model_docs` | `docs` |
-| Get compatibility contract/schema | `get_model_schema` | `schema` |
-| Upload a local reference image | `upload_image` | `upload-image` |
-| Generate image | `generate_image` | `generate-image` |
-| Generate video | `generate_video` | `generate-video` |
-| Query task once | `get_task` | `task` |
+| Action | Local command |
+| --- | --- |
+| Generate an idempotency key | `key` |
+| List models | `models` |
+| Read exact model parameters and values | `docs` |
+| Get compatibility contract/schema | `schema` |
+| Upload a local reference image | `upload-image` |
+| Generate image | `generate-image` |
+| Generate video | `generate-video` |
+| Query task once | `task` |
 
 ## Workflow
 
@@ -88,8 +58,6 @@ When the user did not specify a model:
 3. If candidates differ materially in capability, speed, price, or supported
    inputs and the user's preference is unknown, present a short choice.
 
-Local example:
-
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs models \
   --query "seedance" \
@@ -101,8 +69,6 @@ node <skill-directory>/scripts/apimart-media.mjs models \
 Fetch the exact model's Markdown documentation before every generation. Treat
 its supported parameters, allowed values, defaults, examples, and cross-field
 rules as authoritative for that model.
-
-Local example:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs docs \
@@ -117,52 +83,42 @@ If the response has `stale: true`, the last successfully fetched documentation
 is still usable. Mention the warning when freshness matters. Do not invent
 parameters that the documentation does not describe.
 
-Fetch `get_model_schema` or the local `schema` command only as a compatibility
-contract when you need to confirm `operation`, endpoint, top-level request
-shape, or diagnose validation behavior:
+Use the compatibility schema only when confirming `operation`, endpoint,
+top-level request shape, or diagnosing validation behavior:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs schema \
   --model "<exact-model-id>"
 ```
 
-Generation tools and the local generation commands use this compatibility
-lookup only to confirm the requested image or video operation. APIMart's API
-performs the exact model-input validation.
-
-Do not infer media capability from a model name or
-`supported_endpoint_types`. Never send `response_format` unless the live
-model documentation describes it.
+The generation commands use this lookup only to confirm the requested image or
+video operation. APIMart's API performs the exact model-input validation. Do
+not infer media capability from a model name or `supported_endpoint_types`.
+Never send `response_format` unless the live model documentation describes it.
 
 ### 4. Build the Input
 
 - Include every required property.
 - Ask for missing required user choices instead of inventing them.
 - Include optional properties only when requested or clearly helpful.
-- When the user supplies a local image or image attachment that a model needs,
-  upload it once and use the returned HTTP(S) URL in the exact field named by
-  the live model documentation. Do not put a local path, image bytes, base64,
-  or a `data:image/...` URI directly in generation input.
+- When the user supplies a local image that a model needs, upload it once and
+  use the returned HTTP(S) URL in the exact field named by the live model
+  documentation. Do not put a local path, image bytes, base64, or a
+  `data:image/...` URI directly in generation input.
 - Do not upload an image merely to inspect model parameters or plan a request.
 - Audio and video references must already be public HTTP(S) URLs. Never pass
   an audio/video attachment, local path, `file://` URI, base64, raw bytes, or
-  `data:audio/...` / `data:video/...` URI. APIMart currently has no audio or
-  video upload tool. Ask the user for a URL and do not submit generation when
-  one is required but missing.
-- Keep `model` out of the documentation-derived input object.
+  `data:audio/...` / `data:video/...` URI. Ask the user for a URL and do not
+  submit generation when one is required but missing.
+- Keep `model` out of the documentation-derived input object. Pass it through
+  `--model`.
+- Use `--input-json` for a small payload or `--input-file` for a complex JSON
+  object.
 - Preserve URLs, prompts, reference ordering, model ID, and all parameters
   exactly when retrying.
 
-In MCP mode, pass the model ID in the generation tool's top-level `model`
-field and the remaining properties in `input`.
-
-In local mode, pass the model through `--model`. Use `--input-json` for a small
-payload or `--input-file` for a complex JSON object.
-
-In MCP mode, `upload_image` accepts JPEG, PNG, GIF, or WebP image data and
-returns `url`; it does not impose an image-size rule before calling APIMart.
-Generic MCP client, HTTP, or gateway request limits may still apply. For a
-locally readable file, stream it directly to APIMart with:
+Upload a locally readable JPEG, PNG, GIF, or WebP by streaming it directly to
+APIMart:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs upload-image \
@@ -179,10 +135,9 @@ URL is valid for 72 hours; use it or download it before it expires.
 
 Treat generation as billable. Submit only when the user clearly asks to create
 media. Asking for models, parameters, examples, or cost information does not
-authorize a generation.
+authorize generation.
 
-Create and retain an idempotency key before the first submission. In local
-mode:
+Create and retain an idempotency key before the first submission:
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs key
@@ -213,10 +168,7 @@ submission with a new key.
 - Stop when `terminal` is true. Both `completed` and `failed` are terminal.
 - When an upload or completed generation returns a media URL, state that the
   URL is valid for 72 hours and recommend downloading it before then. Never
-  claim 24 hours, say the duration is unknown, or use vague wording such as
-  "may expire".
-
-Local task example:
+  claim 24 hours or say the duration is unknown.
 
 ```bash
 node <skill-directory>/scripts/apimart-media.mjs task \
@@ -229,15 +181,15 @@ error and do not start another billable request without fresh user intent.
 
 ## Failure and Recovery Rules
 
-- On authentication failure, ask the user to repair their local environment or
-  MCP configuration; never ask them to reveal the key.
+- On authentication failure, ask the user to repair their local environment;
+  never ask them to reveal the credential.
 - On `model_not_found` or `unsupported_generation_model`, refresh the model
   list and model documentation instead of guessing another ID.
-- On a documentation lookup failure, verify that the model has a development
-  documentation link configured. Do not substitute another model's parameters.
+- On a documentation lookup failure, verify the model documentation source.
+  Do not substitute another model's parameters.
 - On an image upload failure or uncertain upload outcome, do not submit a
   generation that depends on it. Confirm a usable URL first.
-- On rejected inline media, upload an image through `upload_image`; for audio
+- On rejected inline media, upload a local image with `upload-image`; for audio
   or video, ask the user for a public HTTP(S) URL.
 - On an API validation failure, refresh both the model documentation and
   compatibility schema, then correct only the rejected input.
@@ -254,5 +206,5 @@ Reply in the user's language. Report the selected model, whether the result is
 synchronous or asynchronous, the terminal status, and returned media URLs.
 Include the task ID when it helps the user resume or diagnose a task. For every
 returned upload or generated-media URL, explicitly state its 72-hour validity.
-In Chinese, use: `链接有效期为 72 小时，请及时下载保存。` Never state 24
-hours or an unknown duration. Never expose credentials.
+In Chinese, use: `链接有效期为 72 小时，请及时下载保存。` Never expose
+credentials.
