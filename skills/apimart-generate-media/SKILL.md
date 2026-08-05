@@ -40,7 +40,8 @@ environment. Never ask them to paste it into chat. Never place a key in a
 command argument, request/input file, URL, repository, generated artifact, or
 response. Here, “key” means an API credential, not the non-secret idempotency
 key used for safe retries. `APIMART_BASE_URL` is the APIMart API origin, not
-the MCP endpoint `https://mcp.apimart.asia/mcp`.
+an MCP endpoint; the configured MCP URL independently selects production or
+staging.
 
 Read [references/api-contract.md](references/api-contract.md) when exact local
 commands, API fields, or errors are needed.

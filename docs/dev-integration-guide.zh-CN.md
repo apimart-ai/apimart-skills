@@ -1140,12 +1140,12 @@ Select-String -Path "$HOME\.agents\.skill-lock.json" -Pattern '"ref"'
 
 ```bash
 codex mcp remove apimart-dev
-codex mcp add apimart --url https://mcp.apimart.asia/mcp --bearer-token-env-var APIMART_API_KEY
+codex mcp add apimart --url https://mcp.apimart.ai/mcp --bearer-token-env-var APIMART_API_KEY
 ```
 
-Windows 上 `codex` 命令不可用时，用第 5.3 节“方式 B”打开 `%USERPROFILE%\.codex\config.toml`，删除 `[mcp_servers.apimart-dev]` 标题及其 `url`、`bearer_token_env_var` 配置行。若该段后面还有别的 `[mcp_servers...]` 或其他配置段，不要删除它们。保存后完全重启 Codex；需要正式配置时，再以 `[mcp_servers.apimart]` 为标题加入同样的 URL 和环境变量名。
+Windows 上 `codex` 命令不可用时，用第 5.3 节“方式 B”打开 `%USERPROFILE%\.codex\config.toml`，删除 `[mcp_servers.apimart-dev]` 标题及其 `url`、`bearer_token_env_var` 配置行。若该段后面还有别的 `[mcp_servers...]` 或其他配置段，不要删除它们。保存后完全重启 Codex；需要正式配置时，再以 `[mcp_servers.apimart]` 为标题，使用生产 URL `https://mcp.apimart.ai/mcp` 和同一个环境变量名 `APIMART_API_KEY`。
 
-Cursor 可把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`；Claude Code 可以删除本地测试条目后，以 `apimart` 为名称重新执行第 7.3 节的 `add-json` 命令。改名不会改变 URL，也不会改变计费规则。
+Cursor 应把 `mcp.json` 中的键名从 `apimart-dev` 改为 `apimart`，并把 URL 改为 `https://mcp.apimart.ai/mcp`；Claude Code 应删除本地测试条目，再以 `apimart` 为名称和生产 URL 重新添加。只改显示名称不会切换环境，真正决定环境的是 URL 和对应的 API Key。
 
 ## 13. 安全检查清单
 
